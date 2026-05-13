@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 18 Database
+  postgres:
+    image: postgres:18-alpine
+    container_name: nutricoach-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-nutricoach}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-nutricoach_secret}
+      POSTGRES_DB: ${DB_NAME:-nutricoach_db}
+      # Performance tuning for production
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # Persistent data storage
+      - postgres_data:/var/lib/postgresql/data
+      # Optional: custom PostgreSQL config
+      # - ./postgresql.conf:/etc/postgresql/postgresql.conf
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-nutricoach} -d ${DB_NAME:-nutricoach_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - nutricoach-network
+    # Security: limit resources
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+  # Redis Cache/Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: nutricoach-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_secret}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      # Persistent cache data (optional but recommended)
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - nutricoach-network
+    # Security: limit resources
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # Backend API (uncomment when Dockerfile is ready)
+  # app:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: nutricoach-api
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${PORT:-3000}:${PORT:-3000}"
+  #   environment:
+  #     NODE_ENV: development
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   volumes:
+  #     - .:/app
+  #     - /app/node_modules
+  #   networks:
+  #     - nutricoach-network
+
+networks:
+  nutricoach-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"D:\\\\nutricoach-backend\" -Force | Where-Object { $_.Name -ne 'node_modules' } | Select-Object Mode, Name | Format-Table -AutoSize)"
+    ]
+  }
+}

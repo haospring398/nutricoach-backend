@@ -15,6 +15,13 @@
       "when": 1778641600170,
       "tag": "0001_thin_sebastian_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1778867774080,
+      "tag": "0002_small_celestials",
+      "breakpoints": true
     }
   ]
 }

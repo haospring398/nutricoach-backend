@@ -3,7 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { env } from './config/env';
-import authRouter from './modules/auth/auth.routes';
+import apiRouter from './routes';
 
 const app: Application = express();
 
@@ -34,15 +34,7 @@ app.get('/health', (_req: Request, res: Response) => {
   });
 });
 
-// ── API routes (wire modules here as you build them) ─────────
-app.use('/api/v1/auth', authRouter);
-// app.use('/api/v1/users',     usersRouter);
-// app.use('/api/v1/nutrition', nutritionRouter);
-// app.use('/api/v1/scan',      scanRouter);
-// app.use('/api/v1/workout',   workoutRouter);
-// app.use('/api/v1/pt',        ptRouter);
-// app.use('/api/v1/payment',   paymentRouter);
-// app.use('/api/v1/content',   contentRouter);
-// app.use('/api/v1/dashboard', dashboardRouter);
+// ── API routes ────────────────────────────────────────────────
+app.use('/api/v1', apiRouter);
 
 export default app;

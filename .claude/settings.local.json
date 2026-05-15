@@ -1,7 +1,20 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(Get-ChildItem -Path \"D:\\\\nutricoach-backend\" -Force | Where-Object { $_.Name -ne 'node_modules' } | Select-Object Mode, Name | Format-Table -AutoSize)"
+      "PowerShell(Get-ChildItem -Path \"D:\\\\nutricoach-backend\" -Force | Where-Object { $_.Name -ne 'node_modules' } | Select-Object Mode, Name | Format-Table -AutoSize)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(npx drizzle-kit *)",
+      "Bash(/tmp/drizzle-gen.exp)",
+      "Bash(pkill -f drizzle-gen.exp)",
+      "Bash(pkill -f drizzle-kit)",
+      "Bash(pkill -f \"tail -80\")",
+      "Bash(pkill -9 -f drizzle-gen.exp)",
+      "Bash(pkill -9 -f drizzle-kit)",
+      "Bash(pkill -9 -f \"node.*drizzle\")",
+      "Bash(python3 -c \"import pty; print\\('ok'\\)\")",
+      "Bash(chmod +x /tmp/drive_drizzle.py)",
+      "Bash(timeout 100 python3 /tmp/drive_drizzle.py)"
     ]
   }
 }

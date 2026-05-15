@@ -5,7 +5,7 @@ import {
   logoutSchema,
   refreshSchema,
   registerSchema,
-} from './auth.schema';
+} from '../validations/auth.validation';
 import {
   AuthError,
   getCurrentUser,
@@ -13,7 +13,7 @@ import {
   logoutUser,
   registerUser,
   rotateRefreshToken,
-} from './auth.service';
+} from '../services/auth.service';
 
 const sendError = (
   res: Response,

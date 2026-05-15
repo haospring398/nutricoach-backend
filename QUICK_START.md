@@ -202,8 +202,8 @@ export * from './users.schema';
 
 **Generate và chạy migrations:**
 ```bash
-npm run db:generate
-npm run db:migrate // npx drizzle-kit generate:pg
+npm run db:generate // npx drizzle-kit generate:pg
+npm run db:migrate 
 ```
 
 **Khởi động server:**

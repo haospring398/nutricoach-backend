@@ -1,47 +1,57 @@
 import { and, eq } from 'drizzle-orm';
-import { db } from '../../config/db';
+import { db } from '../config/db';
 import {
   refreshTokens,
   users,
   type User,
-} from '../../db/schema/users.schema';
-import { comparePassword, hashPassword } from '../../lib/hash';
+} from '../models/user.model';
+import { comparePassword, hashPassword } from '../lib/hash';
 import {
   getTokenExpiry,
   signAccessToken,
   signRefreshToken,
   verifyRefreshToken,
-} from '../../lib/jwt';
-import type { LoginInput, RegisterInput } from './auth.schema';
+} from '../lib/jwt';
+import {
+  toPublicRole,
+  toPublicTier,
+  type PublicRole,
+  type PublicTier,
+} from '../lib/user-presenter';
+import type {
+  LoginInput,
+  RegisterInput,
+} from '../validations/auth.validation';
+import { ApiError } from '../lib/api-error';
 
-export class AuthError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = 'AuthError';
-  }
-}
+export class AuthError extends ApiError {}
 
 export interface PublicUser {
   id: string;
-  name: string;
+  fullName: string;
   email: string;
-  role: User['role'];
+  role: PublicRole;
+  tier: PublicTier;
   createdAt: Date;
 }
 
 export interface LoginUser {
   id: string;
-  name: string;
+  fullName: string;
   email: string;
-  role: User['role'];
+  role: PublicRole;
+  tier: PublicTier;
 }
 
-export interface ProfileUser extends PublicUser {
-  isVerified: boolean;
+export interface ProfileUser {
+  id: string;
+  fullName: string;
+  email: string;
+  role: PublicRole;
+  emailVerified: boolean;
+  tier: PublicTier;
+  onboardingCompleted: boolean;
+  createdAt: Date;
 }
 
 const issueTokensFor = async (
@@ -85,7 +95,7 @@ export const registerUser = async (
   const [created] = await db
     .insert(users)
     .values({
-      name: input.name,
+      fullName: input.fullName,
       email: input.email,
       password: passwordHash,
     })
@@ -100,9 +110,10 @@ export const registerUser = async (
   return {
     user: {
       id: created.id,
-      name: created.name,
+      fullName: created.fullName,
       email: created.email,
-      role: created.role,
+      role: toPublicRole(created.role),
+      tier: toPublicTier(created.tier),
       createdAt: created.createdAt,
     },
     ...tokens,
@@ -144,9 +155,10 @@ export const loginUser = async (
   return {
     user: {
       id: user.id,
-      name: user.name,
+      fullName: user.fullName,
       email: user.email,
-      role: user.role,
+      role: toPublicRole(user.role),
+      tier: toPublicTier(user.tier),
     },
     ...tokens,
   };
@@ -237,10 +249,12 @@ export const getCurrentUser = async (
   const [user] = await db
     .select({
       id: users.id,
-      name: users.name,
+      fullName: users.fullName,
       email: users.email,
       role: users.role,
-      isVerified: users.isVerified,
+      tier: users.tier,
+      emailVerified: users.emailVerified,
+      onboardingCompleted: users.onboardingCompleted,
       createdAt: users.createdAt,
     })
     .from(users)
@@ -251,5 +265,14 @@ export const getCurrentUser = async (
     throw new AuthError(401, 'USER_NOT_FOUND', 'User not found');
   }
 
-  return user;
+  return {
+    id: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    role: toPublicRole(user.role),
+    emailVerified: user.emailVerified,
+    tier: toPublicTier(user.tier),
+    onboardingCompleted: user.onboardingCompleted,
+    createdAt: user.createdAt,
+  };
 };

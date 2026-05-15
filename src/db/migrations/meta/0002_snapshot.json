@@ -1,0 +1,360 @@
+{
+  "id": "ae5770c4-7a6e-495d-bd37-3dbbd49c22d6",
+  "prevId": "f4d6b86c-a171-4ed7-93f3-ac7e702ac6f8",
+  "version": "5",
+  "dialect": "pg",
+  "tables": {
+    "refresh_tokens": {
+      "name": "refresh_tokens",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "refresh_tokens_user_id_users_id_fk": {
+          "name": "refresh_tokens_user_id_users_id_fk",
+          "tableFrom": "refresh_tokens",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "refresh_tokens_token_unique": {
+          "name": "refresh_tokens_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      }
+    },
+    "users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "password": {
+          "name": "password",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone": {
+          "name": "phone",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "avatar_url": {
+          "name": "avatar_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role": {
+          "name": "role",
+          "type": "user_role",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'user'"
+        },
+        "tier": {
+          "name": "tier",
+          "type": "user_tier",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'FREE'"
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "onboarding_completed": {
+          "name": "onboarding_completed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "preferred_language": {
+          "name": "preferred_language",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'vi'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_email_unique": {
+          "name": "users_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      }
+    },
+    "user_metrics": {
+      "name": "user_metrics",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "gender": {
+          "name": "gender",
+          "type": "gender",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date_of_birth": {
+          "name": "date_of_birth",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "height_cm": {
+          "name": "height_cm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "weight_kg": {
+          "name": "weight_kg",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "activity_level": {
+          "name": "activity_level",
+          "type": "activity_level",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "goal": {
+          "name": "goal",
+          "type": "goal",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_weight_kg": {
+          "name": "target_weight_kg",
+          "type": "numeric(5, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dietary_restrictions": {
+          "name": "dietary_restrictions",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": []
+        },
+        "allergies": {
+          "name": "allergies",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": []
+        },
+        "bmr": {
+          "name": "bmr",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tdee": {
+          "name": "tdee",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "daily_calorie_target": {
+          "name": "daily_calorie_target",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "protein_g": {
+          "name": "protein_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "carbs_g": {
+          "name": "carbs_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fat_g": {
+          "name": "fat_g",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_metrics_user_id_users_id_fk": {
+          "name": "user_metrics_user_id_users_id_fk",
+          "tableFrom": "user_metrics",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    }
+  },
+  "enums": {
+    "user_role": {
+      "name": "user_role",
+      "values": {
+        "user": "user",
+        "pt": "pt",
+        "admin": "admin"
+      }
+    },
+    "user_tier": {
+      "name": "user_tier",
+      "values": {
+        "FREE": "FREE",
+        "PRO": "PRO"
+      }
+    },
+    "activity_level": {
+      "name": "activity_level",
+      "values": {
+        "SEDENTARY": "SEDENTARY",
+        "LIGHT": "LIGHT",
+        "MODERATE": "MODERATE",
+        "ACTIVE": "ACTIVE",
+        "VERY_ACTIVE": "VERY_ACTIVE"
+      }
+    },
+    "gender": {
+      "name": "gender",
+      "values": {
+        "MALE": "MALE",
+        "FEMALE": "FEMALE"
+      }
+    },
+    "goal": {
+      "name": "goal",
+      "values": {
+        "LOSE_WEIGHT": "LOSE_WEIGHT",
+        "MAINTAIN": "MAINTAIN",
+        "GAIN_WEIGHT": "GAIN_WEIGHT",
+        "GAIN_MUSCLE": "GAIN_MUSCLE"
+      }
+    }
+  },
+  "schemas": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

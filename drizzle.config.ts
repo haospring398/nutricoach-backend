@@ -22,7 +22,7 @@ export default {
   },
   
   // Schema files location
-  schema: './src/db/schema/index.ts',
+  schema: './src/models/index.ts',
   
   // Migration files output directory
   out: './src/db/migrations',

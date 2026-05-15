@@ -2,33 +2,34 @@ import {
   boolean,
   pgEnum,
   pgTable,
+  text,
   timestamp,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
 
-// ── Enum ─────────────────────────────────────────────────────
 export const userRoleEnum = pgEnum('user_role', ['user', 'pt', 'admin']);
+export const userTierEnum = pgEnum('user_tier', ['FREE', 'PRO']);
 
-// ── users ────────────────────────────────────────────────────
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
   email: varchar('email', { length: 255 }).notNull().unique(),
   password: varchar('password', { length: 255 }).notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
-
-  // role: differentiates regular users from personal trainers and admins
+  fullName: varchar('full_name', { length: 255 }).notNull(),
+  phone: varchar('phone', { length: 20 }),
+  avatarUrl: text('avatar_url'),
   role: userRoleEnum('role').notNull().default('user'),
-
-  // isVerified: true once the user confirms their e-mail
-  isVerified: boolean('is_verified').notNull().default(false),
-
+  tier: userTierEnum('tier').notNull().default('FREE'),
+  emailVerified: boolean('email_verified').notNull().default(false),
+  onboardingCompleted: boolean('onboarding_completed').notNull().default(false),
+  preferredLanguage: varchar('preferred_language', { length: 10 })
+    .notNull()
+    .default('vi'),
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at'),
 });
 
-// ── refresh_tokens ────────────────────────────────────────────
-// Stored server-side so tokens can be revoked (logout / rotation).
 export const refreshTokens = pgTable('refresh_tokens', {
   id: uuid('id').defaultRandom().primaryKey(),
   userId: uuid('user_id')
@@ -39,7 +40,6 @@ export const refreshTokens = pgTable('refresh_tokens', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
-// ── Types ─────────────────────────────────────────────────────
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type RefreshToken = typeof refreshTokens.$inferSelect;

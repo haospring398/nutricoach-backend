@@ -18,6 +18,20 @@ import {
   type PublicRole,
   type PublicTier,
 } from '../lib/user-presenter';
+import {
+  deleteEmailVerificationToken,
+  deletePasswordResetToken,
+  generateEmailVerificationToken,
+  generatePasswordResetToken,
+  getEmailVerificationToken,
+  getPasswordResetToken,
+  saveEmailVerificationToken,
+  savePasswordResetToken,
+} from '../lib/auth-tokens';
+import {
+  sendPasswordResetEmail,
+  sendVerificationEmail,
+} from '../lib/email';
 import type {
   LoginInput,
   RegisterInput,
@@ -106,6 +120,11 @@ export const registerUser = async (
   }
 
   const tokens = await issueTokensFor(created);
+
+  // Fire-and-forget email verification — must not block registration.
+  const verifyToken = generateEmailVerificationToken();
+  await saveEmailVerificationToken(created.id, verifyToken);
+  void sendVerificationEmail(created.email, created.fullName, verifyToken);
 
   return {
     user: {
@@ -275,4 +294,145 @@ export const getCurrentUser = async (
     onboardingCompleted: user.onboardingCompleted,
     createdAt: user.createdAt,
   };
+};
+
+export const logoutAllForUser = async (userId: string): Promise<void> => {
+  await db.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
+};
+
+export const verifyEmail = async (
+  token: string,
+): Promise<{ emailVerified: true }> => {
+  const userId = await getEmailVerificationToken(token);
+  if (!userId) {
+    throw new AuthError(
+      400,
+      'INVALID_VERIFICATION_TOKEN',
+      'Invalid or expired verification token',
+    );
+  }
+
+  const [user] = await db
+    .select({ id: users.id, emailVerified: users.emailVerified })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) {
+    await deleteEmailVerificationToken(token);
+    throw new AuthError(
+      400,
+      'INVALID_VERIFICATION_TOKEN',
+      'Invalid or expired verification token',
+    );
+  }
+
+  if (user.emailVerified) {
+    await deleteEmailVerificationToken(token);
+    return { emailVerified: true };
+  }
+
+  await db
+    .update(users)
+    .set({ emailVerified: true, updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  await deleteEmailVerificationToken(token);
+  return { emailVerified: true };
+};
+
+// TODO: rate limit 1 req/60s per user
+export const resendVerification = async (
+  userId: string,
+): Promise<{ message: string }> => {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      fullName: users.fullName,
+      emailVerified: users.emailVerified,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) {
+    throw new AuthError(401, 'USER_NOT_FOUND', 'User not found');
+  }
+
+  if (user.emailVerified) {
+    throw new AuthError(400, 'ALREADY_VERIFIED', 'Email is already verified');
+  }
+
+  const token = generateEmailVerificationToken();
+  await saveEmailVerificationToken(user.id, token);
+  void sendVerificationEmail(user.email, user.fullName, token);
+
+  return { message: 'Verification email sent' };
+};
+
+const FORGOT_PASSWORD_MESSAGE =
+  'Nếu email tồn tại, link đặt lại mật khẩu đã được gửi';
+
+export const forgotPassword = async (
+  email: string,
+): Promise<{ message: string }> => {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      fullName: users.fullName,
+      deletedAt: users.deletedAt,
+    })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  if (user && user.deletedAt === null) {
+    const token = generatePasswordResetToken();
+    await savePasswordResetToken(user.id, token);
+    void sendPasswordResetEmail(user.email, user.fullName, token);
+  }
+
+  return { message: FORGOT_PASSWORD_MESSAGE };
+};
+
+export const resetPassword = async (
+  token: string,
+  newPassword: string,
+): Promise<{ message: string }> => {
+  const userId = await getPasswordResetToken(token);
+  if (!userId) {
+    throw new AuthError(
+      400,
+      'INVALID_RESET_TOKEN',
+      'Invalid or expired reset token',
+    );
+  }
+
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) {
+    await deletePasswordResetToken(token);
+    throw new AuthError(
+      400,
+      'INVALID_RESET_TOKEN',
+      'Invalid or expired reset token',
+    );
+  }
+
+  const newHash = await hashPassword(newPassword);
+  await db
+    .update(users)
+    .set({ password: newHash, updatedAt: new Date() })
+    .where(eq(users.id, user.id));
+
+  await deletePasswordResetToken(token);
+  await db.delete(refreshTokens).where(eq(refreshTokens.userId, user.id));
+
+  return { message: 'Mật khẩu đã được đặt lại thành công' };
 };

@@ -14,7 +14,9 @@
       "Bash(pkill -9 -f \"node.*drizzle\")",
       "Bash(python3 -c \"import pty; print\\('ok'\\)\")",
       "Bash(chmod +x /tmp/drive_drizzle.py)",
-      "Bash(timeout 100 python3 /tmp/drive_drizzle.py)"
+      "Bash(timeout 100 python3 /tmp/drive_drizzle.py)",
+      "Bash(timeout 80 python3 /tmp/drive_drizzle.py)",
+      "Bash(npm install *)"
     ]
   }
 }

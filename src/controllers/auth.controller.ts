@@ -1,18 +1,26 @@
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
 import {
+  forgotPasswordSchema,
   loginSchema,
   logoutSchema,
   refreshSchema,
   registerSchema,
+  resetPasswordSchema,
+  verifyEmailSchema,
 } from '../validations/auth.validation';
 import {
   AuthError,
+  forgotPassword as forgotPasswordSvc,
   getCurrentUser,
   loginUser,
+  logoutAllForUser,
   logoutUser,
   registerUser,
+  resendVerification as resendVerificationSvc,
+  resetPassword as resetPasswordSvc,
   rotateRefreshToken,
+  verifyEmail as verifyEmailSvc,
 } from '../services/auth.service';
 
 const sendError = (
@@ -114,6 +122,77 @@ export const me = async (req: Request, res: Response): Promise<void> => {
     }
     const user = await getCurrentUser(req.user.id);
     sendSuccess(res, 200, { user });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const logoutAll = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
+      return;
+    }
+    await logoutAllForUser(req.user.id);
+    res.status(204).end();
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const verifyEmail = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { token } = verifyEmailSchema.parse(req.body);
+    const data = await verifyEmailSvc(token);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const resendVerification = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      sendError(res, 401, 'UNAUTHORIZED', 'Authentication required');
+      return;
+    }
+    const data = await resendVerificationSvc(req.user.id);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const forgotPassword = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { email } = forgotPasswordSchema.parse(req.body);
+    const data = await forgotPasswordSvc(email);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const resetPassword = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { token, newPassword } = resetPasswordSchema.parse(req.body);
+    const data = await resetPasswordSvc(token, newPassword);
+    sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);
   }

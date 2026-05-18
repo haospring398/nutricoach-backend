@@ -2,7 +2,7 @@
 
 > **Tài liệu API Specification chính thức** cho dự án NutriCoach. Tuân thủ chuẩn REST + OpenAPI 3.1. Đây là **single source of truth** cho cả Backend team (Node.js + Express + TypeScript + Drizzle ORM) và Mobile team.
 >
-> **Version:** 1.0.0 · **Last updated:** 2026-05-13 · **Maintainer:** Backend Team
+> **Version:** 1.1.0 · **Last updated:** 2026-05-18 · **Maintainer:** Backend Team
 
 ---
 
@@ -14,15 +14,16 @@
 4. [Module: `auth`](#4-module-auth)
 5. [Module: `users`](#5-module-users)
 6. [Module: `scan` (AI Food Scanning)](#6-module-scan-ai-food-scanning)
-7. [Module: `nutrition`](#7-module-nutrition)
-8. [Module: `workout`](#8-module-workout)
-9. [Module: `pt`](#9-module-pt)
-10. [Module: `payment` (PayOS)](#10-module-payment-payos)
-11. [Module: `content`](#11-module-content)
-12. [Module: `dashboard`](#12-module-dashboard)
-13. [Module: `upload`](#13-module-upload)
-14. [Module: `admin`](#14-module-admin)
-15. [Appendix](#15-appendix)
+7. [Module: `foods` (Food Catalog)](#7-module-foods-food-catalog)
+8. [Module: `nutrition`](#8-module-nutrition)
+9. [Module: `workout`](#9-module-workout)
+10. [Module: `pt`](#10-module-pt)
+11. [Module: `payment` (PayOS)](#11-module-payment-payos)
+12. [Module: `content`](#12-module-content)
+13. [Module: `dashboard`](#13-module-dashboard)
+14. [Module: `upload`](#14-module-upload)
+15. [Module: `admin`](#15-module-admin)
+16. [Appendix](#16-appendix)
 
 ---
 
@@ -837,9 +838,179 @@ Token reset có TTL **15 phút**, lưu Redis `password_reset:<token> → userId`
 
 ---
 
-## 7. Module: `nutrition`
+## 7. Module: `foods` (Food Catalog)
 
-### 7.1. `POST /api/v1/nutrition/meal-plans/generate`
+Catalog tra cứu thông tin dinh dưỡng cho ~2,100 nguyên liệu và món ăn Việt Nam, seed từ Viện Dinh Dưỡng Quốc Gia (VN NIN). Dữ liệu chia 2 loại:
+- **INGREDIENT** (853 mục): nguyên liệu thô — 100% có đầy đủ macro.
+- **DISH** (1,250 mục): món ăn chế biến sẵn — 100% có calories, 99% có protein, nhưng chỉ **28% có đầy đủ fat + carbs**. Phần còn lại trả về `null` (KHÔNG được zero-fill) và gắn cờ `dataCompleteness: "PARTIAL"`.
+
+Mỗi food item có cờ `dataCompleteness`:
+- `FULL` — đủ cal + protein + fat + carbs.
+- `PARTIAL` — có cal + protein, thiếu fat hoặc carbs.
+- `CALORIES_ONLY` — chỉ có calories (edge case hiếm).
+
+Frontend chịu trách nhiệm hiển thị disclaimer khi gặp `PARTIAL` — backend chỉ cung cấp data trung thực.
+
+### 7.1. `GET /api/v1/foods/search`
+
+**Mô tả:** Tìm kiếm food item theo tên (cả Việt + English) với fuzzy matching qua `pg_trgm`. Dùng cho UI manual food log: user search → chọn → gọi `POST /nutrition/food-logs` với `foodItemId`.
+
+- **Auth:** Bearer · **Authorization:** USER / PT
+- **Rate limit:** 60 req/phút/user (search tốn DB resource hơn endpoint đọc đơn lẻ)
+
+**Query Params:**
+
+| Param | Type | Required | Mô tả |
+|---|---|---|---|
+| `q` | string | Yes | Từ khóa tìm kiếm, min 1 ký tự, max 100 |
+| `type` | enum | No | `INGREDIENT` hoặc `DISH`. Bỏ qua = cả 2 |
+| `category` | string | No | Lọc theo category (lấy danh sách từ `/foods/categories`) |
+| `completeness` | enum | No | `FULL` để chỉ lấy món có đầy đủ macro. Default = không lọc |
+| `page` | int | No | Default 1 |
+| `limit` | int | No | Default 20, max 50 |
+
+**Validation:**
+- `q`: trim, normalize whitespace, escape `%` `_` cho LIKE.
+- Search query backend: `WHERE (similarity(name_vi, $q) > 0.2 OR similarity(name_en, $q) > 0.2 OR name_vi ILIKE '%' || $q || '%' OR name_en ILIKE '%' || $q || '%')`, ORDER BY `GREATEST(similarity(name_vi, $q), similarity(name_en, $q))` DESC.
+
+**Response `200 OK`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "fdi_01HXYZABC123",
+      "externalId": "HAP-223031",
+      "type": "DISH",
+      "nameVi": "Phở bò tái",
+      "nameEn": "Beef pho with rare beef",
+      "category": "Thick rice noodle, rice vermicelli, pho",
+      "per100g": {
+        "calories": 145,
+        "proteinG": 8.2,
+        "totalFatG": 3.1,
+        "carbohydrateG": 22.4,
+        "sugarG": null
+      },
+      "dataCompleteness": "FULL",
+      "isVerified": true
+    },
+    {
+      "id": "fdi_01HXYZABC456",
+      "externalId": "HAP-223025",
+      "type": "DISH",
+      "nameVi": "Tiết luộc",
+      "nameEn": "Boiled pig blood",
+      "category": "Other food dishes",
+      "per100g": {
+        "calories": 65.9,
+        "proteinG": 11.4,
+        "totalFatG": null,
+        "carbohydrateG": null,
+        "sugarG": null
+      },
+      "dataCompleteness": "PARTIAL",
+      "isVerified": true
+    }
+  ],
+  "pagination": { "page": 1, "limit": 20, "totalItems": 47, "totalPages": 3, "hasNext": true, "hasPrev": false }
+}
+```
+
+**Errors:** `422 VALIDATION_ERROR` (q rỗng), `429 RATE_LIMITED`.
+
+---
+
+### 7.2. `GET /api/v1/foods/:id`
+
+**Mô tả:** Lấy chi tiết đầy đủ một food item, bao gồm tất cả vi chất (vitamins, minerals) đã có trong DB.
+
+- **Auth:** Bearer · **Authorization:** USER / PT
+- **Cache:** `Cache-Control: private, max-age=86400` (data tĩnh)
+
+**Path Params:** `id` — UUID của food item (vd: `fdi_01HXYZABC123`).
+
+**Response `200 OK`:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "fdi_01HXYZABC123",
+    "externalId": "HAP-223031",
+    "source": "VN_NIN",
+    "type": "DISH",
+    "nameVi": "Phở bò tái",
+    "nameEn": "Beef pho with rare beef",
+    "category": "Thick rice noodle, rice vermicelli, pho",
+    "per100g": {
+      "calories": 145,
+      "proteinG": 8.2,
+      "totalFatG": 3.1,
+      "carbohydrateG": 22.4,
+      "sugarG": null,
+      "calciumMg": 28.5,
+      "ironMg": 1.8,
+      "sodiumMg": 412,
+      "potassiumMg": 188,
+      "vitaminCMg": null,
+      "vitaminAIu": null,
+      "micronutrients": {
+        "zincMg": 1.2,
+        "vitaminB1Mg": 0.04,
+        "vitaminB2Mg": 0.06
+      }
+    },
+    "dataCompleteness": "FULL",
+    "isVerified": true,
+    "createdAt": "2026-05-18T10:00:00.000Z"
+  }
+}
+```
+
+**Errors:** `404 RESOURCE_NOT_FOUND`.
+
+---
+
+### 7.3. `GET /api/v1/foods/categories`
+
+**Mô tả:** Danh sách category để mobile build filter UI. Data tĩnh — cache Redis 1h.
+
+- **Auth:** Bearer · **Authorization:** USER / PT
+- **Cache:** `Cache-Control: public, max-age=3600`
+
+**Query Params:** `type` (optional): lọc theo `INGREDIENT` hoặc `DISH`.
+
+**Response `200 OK`:**
+
+```json
+{
+  "success": true,
+  "data": [
+    { "name": "Vegetables, fruits, tubers used as vegetables", "type": "INGREDIENT", "count": 169 },
+    { "name": "Meat and processed products", "type": "INGREDIENT", "count": 150 },
+    { "name": "Other food dishes", "type": "DISH", "count": 323 },
+    { "name": "Cakes", "type": "DISH", "count": 166 },
+    { "name": "Thick rice noodle, rice vermicelli, pho", "type": "DISH", "count": 136 }
+  ]
+}
+```
+
+---
+
+### Notes on `foods` module
+
+- **Search endpoint không lọc `PARTIAL` mặc định** — nhiều món phổ biến (phở, bún) nằm trong 72% thiếu fat/carbs. Lọc chúng ra sẽ làm catalog mất giá trị. Frontend tự handle hiển thị.
+- **`foods/recent` và `foods/popular`** được hoãn sang v1.2 — chờ có dữ liệu sử dụng thực tế từ `food_logs.foodItemId`.
+- **`POST /foods/custom`** (user tự tạo food để reuse) cũng hoãn — V1 dùng `customName` trên food log là đủ.
+- **Seed:** dataset từ Viện Dinh Dưỡng VN, được import qua script `npm run seed:foods` đọc 2 CSV (`vn_food.csv` cho INGREDIENT, `vn_dishes.csv` cho DISH). External ID giữ nguyên format gốc (`10001`, `HAP-223025`) trong column `external_id` để traceability.
+
+---
+
+## 8. Module: `nutrition`
+
+### 8.1. `POST /api/v1/nutrition/meal-plans/generate`
 
 **Mô tả:** AI sinh thực đơn 7 ngày dựa trên TDEE, mục tiêu, restrictions. Trả `202 Accepted` + jobId, client poll `/jobs/:id`. (Có thể stream qua SSE ở v1.1.)
 
@@ -863,35 +1034,65 @@ Token reset có TTL **15 phút**, lưu Redis `password_reset:<token> → userId`
 { "success": true, "data": { "jobId": "job_01HXYZ...", "status": "PROCESSING", "estimatedSeconds": 25 } }
 ```
 
-### 7.2. `GET /api/v1/nutrition/meal-plans/active`
+### 8.2. `GET /api/v1/nutrition/meal-plans/active`
 
 Lấy meal plan đang dùng của user. Trả mảng `days[]`, mỗi day có `meals[]` với `name`, `calories`, `macros`, `recipeSteps`, `ingredients`.
 
-### 7.3. `POST /api/v1/nutrition/food-logs`
+### 8.3. `POST /api/v1/nutrition/food-logs`
 
-**Mô tả:** Ghi nhận món đã ăn (manual entry hoặc từ scan).
+**Mô tả:** Ghi nhận món đã ăn. Hỗ trợ **2 chế độ input** (discriminated union):
+
+**Chế độ A — từ catalog (`food_items` table):** client đã search qua `GET /foods/search` và chọn một món.
 
 ```json
 {
-  "foodId": "fd_pho_bo",
-  "customName": null,
-  "calories": 520,
-  "macros": { "proteinG": 32, "carbsG": 68, "fatG": 12 },
-  "portion": 1,
+  "foodItemId": "fdi_01HXYZABC123",
+  "portionGrams": 250,
   "mealType": "LUNCH",
   "consumedAt": "2026-05-13T12:30:00.000Z"
 }
 ```
 
-### 7.4. `GET /api/v1/nutrition/food-logs?date=2026-05-13`
+Backend lookup `food_items.id`, đọc macro per-100g, **snapshot** vào food_log row:
+- `calories = caloriesPer100g × portionGrams / 100`
+- `proteinG = proteinPer100g × portionGrams / 100` (và tương tự cho fat/carb)
+- Lưu `foodItemId` vào FK column để analytics sau này, nhưng các giá trị macro **không** đọc lại từ FK — đảm bảo lịch sử ăn uống bất biến kể cả khi catalog được update.
+
+**Chế độ B — custom one-off (không có trong catalog):**
+
+```json
+{
+  "customName": "Bánh mì mẹ làm",
+  "calories": 320,
+  "macros": { "proteinG": 12, "carbsG": 45, "fatG": 10 },
+  "portionGrams": 150,
+  "mealType": "BREAKFAST",
+  "consumedAt": "2026-05-13T07:30:00.000Z"
+}
+```
+
+**Validation (Zod discriminated union):**
+- Phải có đúng 1 trong 2: `foodItemId` HOẶC `customName + calories + macros`.
+- `portionGrams`: number, 1–5000.
+- `mealType`: enum `BREAKFAST | LUNCH | DINNER | SNACK`.
+- `consumedAt`: ISO 8601 UTC, không lớn hơn `now() + 5 min` (chống lag clock).
+
+**Response `201 Created`:** food log đã tạo, kèm `dailyTotals` sau khi thêm món này.
+
+**Errors:**
+- `404 FOOD_ITEM_NOT_FOUND` — `foodItemId` không tồn tại
+- `422 VALIDATION_ERROR` — Vi phạm rule discriminated union (cung cấp cả 2 hoặc thiếu cả 2)
+- `422 INCOMPLETE_MACROS` — Chế độ B nhưng thiếu protein/carbs/fat
+
+### 8.4. `GET /api/v1/nutrition/food-logs?date=2026-05-13`
 
 Trả mảng food logs trong ngày + tổng calo/macro.
 
-### 7.5. `PATCH /api/v1/nutrition/food-logs/:id`, `DELETE /api/v1/nutrition/food-logs/:id`
+### 8.5. `PATCH /api/v1/nutrition/food-logs/:id`, `DELETE /api/v1/nutrition/food-logs/:id`
 
 CRUD chuẩn.
 
-### 7.6. `GET /api/v1/nutrition/summary/daily?date=2026-05-13`
+### 8.6. `GET /api/v1/nutrition/summary/daily?date=2026-05-13`
 
 **Response:**
 
@@ -909,15 +1110,15 @@ CRUD chuẩn.
 }
 ```
 
-### 7.7. `GET /api/v1/nutrition/summary/weekly?weekStart=2026-05-12`
+### 8.7. `GET /api/v1/nutrition/summary/weekly?weekStart=2026-05-12`
 
 Trả 7 ngày + average.
 
 ---
 
-## 8. Module: `workout`
+## 9. Module: `workout`
 
-### 8.1. `GET /api/v1/workout/exercises`
+### 9.1. `GET /api/v1/workout/exercises`
 
 **Mô tả:** Kho bài tập 2D có phân trang + filter.
 
@@ -941,11 +1142,11 @@ Trả 7 ngày + average.
 }
 ```
 
-### 8.2. `GET /api/v1/workout/exercises/:id`
+### 9.2. `GET /api/v1/workout/exercises/:id`
 
 Chi tiết bài tập kèm `instructions[]`, `commonMistakes[]`, `variations[]`.
 
-### 8.3. `POST /api/v1/workout/sessions`
+### 9.3. `POST /api/v1/workout/sessions`
 
 **Mô tả:** Bắt đầu một session tập (free user tự chọn).
 
@@ -961,27 +1162,27 @@ Chi tiết bài tập kèm `instructions[]`, `commonMistakes[]`, `variations[]`.
 
 **Response `201`:** `{ sessionId, startedAt, ... }`.
 
-### 8.4. `POST /api/v1/workout/sessions/:id/logs`
+### 9.4. `POST /api/v1/workout/sessions/:id/logs`
 
 Ghi nhận từng set đã hoàn thành: `{ exerciseId, setNumber, reps, weightKg, restSec, rpe }`.
 
-### 8.5. `POST /api/v1/workout/sessions/:id/finish`
+### 9.5. `POST /api/v1/workout/sessions/:id/finish`
 
 Body: `{ caloriesBurned, notes }`. Trả tổng kết.
 
-### 8.6. `GET /api/v1/workout/sessions?from=...&to=...`
+### 9.6. `GET /api/v1/workout/sessions?from=...&to=...`
 
 Lịch sử sessions.
 
-### 8.7. `GET /api/v1/workout/programs/me`
+### 9.7. `GET /api/v1/workout/programs/me`
 
 Giáo án được PT giao (paid user).
 
 ---
 
-## 9. Module: `pt`
+## 10. Module: `pt`
 
-### 9.1. `POST /api/v1/pt/verification`
+### 10.1. `POST /api/v1/pt/verification`
 
 **Mô tả:** PT submit hồ sơ xác minh: CCCD (front/back) + bằng cấp/chứng chỉ — đã upload qua presigned URL trước đó.
 
@@ -1029,21 +1230,21 @@ Giáo án được PT giao (paid user).
 }
 ```
 
-### 9.2. `GET /api/v1/pt/verification/status`
+### 10.2. `GET /api/v1/pt/verification/status`
 
 Trả `{ status: PENDING_REVIEW | APPROVED | REJECTED, rejectReason?, reviewedAt? }`.
 
-### 9.3. `GET /api/v1/pt/me`
+### 10.3. `GET /api/v1/pt/me`
 
 PT profile (chỉ PT đã verified).
 
 - **Auth:** Bearer · **Authorization:** PT
 
-### 9.4. `PATCH /api/v1/pt/me`
+### 10.4. `PATCH /api/v1/pt/me`
 
 Cập nhật `bio`, `specialties`, `bankAccount`, `commissionRate` (read-only).
 
-### 9.5. `GET /api/v1/pt/students`
+### 10.5. `GET /api/v1/pt/students`
 
 **Mô tả:** Danh sách học viên đã mua khóa.
 
@@ -1066,11 +1267,11 @@ Cập nhật `bio`, `specialties`, `bankAccount`, `commissionRate` (read-only).
 }
 ```
 
-### 9.6. `GET /api/v1/pt/students/:studentId`
+### 10.6. `GET /api/v1/pt/students/:studentId`
 
 Chi tiết tiến độ: weight history, workout sessions, nutrition adherence, photos.
 
-### 9.7. `PUT /api/v1/pt/students/:studentId/meal-plan`
+### 10.7. `PUT /api/v1/pt/students/:studentId/meal-plan`
 
 **Mô tả:** PT can thiệp điều chỉnh thực đơn của học viên (override AI).
 
@@ -1088,7 +1289,7 @@ Chi tiết tiến độ: weight history, workout sessions, nutrition adherence, 
 }
 ```
 
-### 9.8. `POST /api/v1/pt/students/:studentId/exercises`
+### 10.8. `POST /api/v1/pt/students/:studentId/exercises`
 
 **Mô tả:** PT thêm bài tập custom ngoài giáo án cho học viên.
 
@@ -1102,7 +1303,7 @@ Chi tiết tiến độ: weight history, workout sessions, nutrition adherence, 
 }
 ```
 
-### 9.9. `POST /api/v1/pt/courses`
+### 10.9. `POST /api/v1/pt/courses`
 
 **Mô tả:** Tạo khóa học mới (paid course PT bán).
 
@@ -1127,11 +1328,11 @@ Chi tiết tiến độ: weight history, workout sessions, nutrition adherence, 
 
 **Response `201`:** `{ courseId, status: DRAFT, ... }`. Khóa học cần được Admin duyệt trước khi publish.
 
-### 9.10. `GET /api/v1/pt/courses` · `PATCH /api/v1/pt/courses/:id` · `POST /api/v1/pt/courses/:id/publish`
+### 10.10. `GET /api/v1/pt/courses` · `PATCH /api/v1/pt/courses/:id` · `POST /api/v1/pt/courses/:id/publish`
 
 CRUD chuẩn.
 
-### 9.11. `GET /api/v1/pt/earnings`
+### 10.11. `GET /api/v1/pt/earnings`
 
 **Mô tả:** Báo cáo thu nhập. App thu **10% hoa hồng**, PT nhận **90%** mỗi giao dịch.
 
@@ -1157,7 +1358,7 @@ CRUD chuẩn.
 }
 ```
 
-### 9.12. `POST /api/v1/pt/withdrawals`
+### 10.12. `POST /api/v1/pt/withdrawals`
 
 **Mô tả:** PT yêu cầu rút tiền. **Bắt buộc** header `Idempotency-Key`.
 
@@ -1173,15 +1374,15 @@ CRUD chuẩn.
 
 **Response `201`:** `{ withdrawalId, status: "PENDING_APPROVAL", requestedAt }`.
 
-### 9.13. `GET /api/v1/pt/withdrawals?status=...`
+### 10.13. `GET /api/v1/pt/withdrawals?status=...`
 
 Lịch sử rút tiền.
 
 ---
 
-## 10. Module: `payment` (PayOS)
+## 11. Module: `payment` (PayOS)
 
-### 10.1. `POST /api/v1/payment/checkout`
+### 11.1. `POST /api/v1/payment/checkout`
 
 **Mô tả:** Tạo payment link qua PayOS để mua gói Pro hoặc khóa học PT.
 
@@ -1227,7 +1428,7 @@ Lịch sử rút tiền.
 
 **Errors:** `404 PRODUCT_NOT_FOUND`, `409 ALREADY_PURCHASED`, `503 PAYOS_UNAVAILABLE`.
 
-### 10.2. `POST /api/v1/payment/webhook/payos`
+### 11.2. `POST /api/v1/payment/webhook/payos`
 
 **Mô tả:** Endpoint nhận webhook từ PayOS khi giao dịch thay đổi trạng thái. **Public** nhưng verify signature bằng HMAC-SHA256 với `PAYOS_CHECKSUM_KEY`.
 
@@ -1283,15 +1484,15 @@ Lịch sử rút tiền.
 - `401 INVALID_SIGNATURE` — Signature không khớp.
 - `400 MALFORMED_PAYLOAD`.
 
-### 10.3. `GET /api/v1/payment/transactions`
+### 11.3. `GET /api/v1/payment/transactions`
 
 Lịch sử thanh toán của user. `?page=1&limit=20&status=PAID`.
 
-### 10.4. `GET /api/v1/payment/transactions/:id`
+### 11.4. `GET /api/v1/payment/transactions/:id`
 
 Chi tiết transaction.
 
-### 10.5. `GET /api/v1/payment/subscription`
+### 11.5. `GET /api/v1/payment/subscription`
 
 ```json
 {
@@ -1307,15 +1508,15 @@ Chi tiết transaction.
 }
 ```
 
-### 10.6. `POST /api/v1/payment/transactions/:id/cancel`
+### 11.6. `POST /api/v1/payment/transactions/:id/cancel`
 
 Hủy payment link còn PENDING.
 
 ---
 
-## 11. Module: `content`
+## 12. Module: `content`
 
-### 11.1. `GET /api/v1/content/articles`
+### 12.1. `GET /api/v1/content/articles`
 
 **Auth:** Optional · **Authorization:** PUBLIC · **Cache:** 5 phút
 
@@ -1338,27 +1539,27 @@ Hủy payment link còn PENDING.
 }
 ```
 
-### 11.2. `GET /api/v1/content/articles/:slug`
+### 12.2. `GET /api/v1/content/articles/:slug`
 
 Chi tiết bài viết, body Markdown.
 
-### 11.3. `GET /api/v1/content/discover/pt-courses`
+### 12.3. `GET /api/v1/content/discover/pt-courses`
 
 Khám phá khóa học PT. Filter `?specialty=WEIGHT_LOSS&maxPrice=2000000&sort=-rating&page=1`.
 
-### 11.4. `GET /api/v1/content/pt-courses/:id`
+### 12.4. `GET /api/v1/content/pt-courses/:id`
 
 Chi tiết khóa học (modules, instructor, reviews).
 
-### 11.5. `GET /api/v1/content/search?q=...&type=ARTICLE|COURSE|EXERCISE`
+### 12.5. `GET /api/v1/content/search?q=...&type=ARTICLE|COURSE|EXERCISE`
 
 Tìm kiếm toàn hệ thống.
 
 ---
 
-## 12. Module: `dashboard`
+## 13. Module: `dashboard`
 
-### 12.1. `GET /api/v1/dashboard/user`
+### 13.1. `GET /api/v1/dashboard/user`
 
 **Auth:** Bearer · **USER**
 
@@ -1378,7 +1579,7 @@ Tìm kiếm toàn hệ thống.
 }
 ```
 
-### 12.2. `GET /api/v1/dashboard/pt`
+### 13.2. `GET /api/v1/dashboard/pt`
 
 **Auth:** Bearer · **PT**
 
@@ -1400,7 +1601,7 @@ Tìm kiếm toàn hệ thống.
 }
 ```
 
-### 12.3. `GET /api/v1/dashboard/admin`
+### 13.3. `GET /api/v1/dashboard/admin`
 
 **Auth:** Bearer · **ADMIN**
 
@@ -1421,9 +1622,9 @@ Tìm kiếm toàn hệ thống.
 
 ---
 
-## 13. Module: `upload`
+## 14. Module: `upload`
 
-### 13.1. `GET /api/v1/upload/presigned-url`
+### 14.1. `GET /api/v1/upload/presigned-url`
 
 **Mô tả:** Sinh AWS S3 presigned **PUT** URL để client upload trực tiếp. TTL ngắn (5 phút) theo khuyến nghị AWS best practices.
 
@@ -1471,69 +1672,69 @@ Tìm kiếm toàn hệ thống.
 
 ---
 
-## 14. Module: `admin`
+## 15. Module: `admin`
 
 > Tất cả endpoint trong section này yêu cầu role `ADMIN`.
 
-### 14.1. `GET /api/v1/admin/pt-verifications`
+### 15.1. `GET /api/v1/admin/pt-verifications`
 
 Danh sách hồ sơ PT chờ duyệt. `?status=PENDING_REVIEW&page=1&limit=20`.
 
-### 14.2. `GET /api/v1/admin/pt-verifications/:id`
+### 15.2. `GET /api/v1/admin/pt-verifications/:id`
 
 Chi tiết hồ sơ kèm URL ảnh CCCD/certs (signed URL có TTL).
 
-### 14.3. `POST /api/v1/admin/pt-verifications/:id/approve`
+### 15.3. `POST /api/v1/admin/pt-verifications/:id/approve`
 
 **Body:** `{ "note": "Hồ sơ đầy đủ, chứng chỉ hợp lệ" }`. Side effect: chuyển role user `USER → PT`, gửi email thông báo.
 
-### 14.4. `POST /api/v1/admin/pt-verifications/:id/reject`
+### 15.4. `POST /api/v1/admin/pt-verifications/:id/reject`
 
 **Body:** `{ "reason": "Ảnh CCCD mờ", "requireResubmit": true }`.
 
-### 14.5. `GET /api/v1/admin/withdrawals?status=PENDING_APPROVAL`
+### 15.5. `GET /api/v1/admin/withdrawals?status=PENDING_APPROVAL`
 
 Danh sách yêu cầu rút tiền.
 
-### 14.6. `POST /api/v1/admin/withdrawals/:id/approve`
+### 15.6. `POST /api/v1/admin/withdrawals/:id/approve`
 
 **Body:** `{ "transferReference": "FT26051300001", "note": "Đã chuyển khoản VCB" }`.
 
 Side effect: trừ `availableBalance` của PT, ghi log audit.
 
-### 14.7. `POST /api/v1/admin/withdrawals/:id/reject`
+### 15.7. `POST /api/v1/admin/withdrawals/:id/reject`
 
 **Body:** `{ "reason": "Thông tin tài khoản sai" }`. Hoàn lại balance.
 
-### 14.8. `GET /api/v1/admin/courses?status=PENDING_REVIEW`
+### 15.8. `GET /api/v1/admin/courses?status=PENDING_REVIEW`
 
 Kiểm duyệt khóa học PT.
 
-### 14.9. `POST /api/v1/admin/courses/:id/approve` · `/reject`
+### 15.9. `POST /api/v1/admin/courses/:id/approve` · `/reject`
 
 Duyệt/từ chối publish.
 
-### 14.10. `GET /api/v1/admin/articles` · `POST /api/v1/admin/articles` · `PATCH` · `DELETE`
+### 15.10. `GET /api/v1/admin/articles` · `POST /api/v1/admin/articles` · `PATCH` · `DELETE`
 
 CRUD content cho ban biên tập.
 
-### 14.11. `GET /api/v1/admin/users?search=&role=&page=`
+### 15.11. `GET /api/v1/admin/users?search=&role=&page=`
 
 Tìm/quản lý user.
 
-### 14.12. `POST /api/v1/admin/users/:id/suspend` · `/unsuspend`
+### 15.12. `POST /api/v1/admin/users/:id/suspend` · `/unsuspend`
 
 Khóa tài khoản vi phạm.
 
-### 14.13. `GET /api/v1/admin/audit-logs`
+### 15.13. `GET /api/v1/admin/audit-logs`
 
 Audit trail của các hành động admin.
 
 ---
 
-## 15. Appendix
+## 16. Appendix
 
-### 15.1. Enum Reference
+### 16.1. Enum Reference
 
 | Enum | Values |
 |---|---|
@@ -1550,8 +1751,11 @@ Audit trail của các hành động admin.
 | `Difficulty` | `BEGINNER`, `INTERMEDIATE`, `ADVANCED` |
 | `MuscleGroup` | `CHEST`, `BACK`, `SHOULDERS`, `BICEPS`, `TRICEPS`, `LEGS`, `GLUTES`, `CORE`, `CARDIO`, `FULL_BODY` |
 | `Equipment` | `BODYWEIGHT`, `DUMBBELL`, `BARBELL`, `MACHINE`, `KETTLEBELL`, `BAND`, `CABLE` |
+| `FoodType` | `INGREDIENT`, `DISH` |
+| `FoodDataCompleteness` | `FULL`, `PARTIAL`, `CALORIES_ONLY` |
+| `FoodSource` | `VN_NIN` (Viện Dinh Dưỡng Quốc Gia) |
 
-### 15.2. Drizzle Schema Highlights (tham khảo)
+### 16.2. Drizzle Schema Highlights (tham khảo)
 
 ```ts
 // users.ts
@@ -1570,11 +1774,49 @@ export const users = pgTable("users", {
   deletedAt: timestamp("deleted_at"),
 });
 
-// foods + food_scans + food_logs + meal_plans + workouts + pt_profiles + courses
+// food_items.ts (seeded from VN NIN)
+export const foodTypeEnum = pgEnum("food_type", ["INGREDIENT", "DISH"]);
+export const dataCompletenessEnum = pgEnum("food_data_completeness",
+  ["FULL", "PARTIAL", "CALORIES_ONLY"]);
+
+export const foodItems = pgTable("food_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  externalId: varchar("external_id", { length: 32 }).notNull().unique(),
+  source: varchar("source", { length: 32 }).notNull().default("VN_NIN"),
+  type: foodTypeEnum("type").notNull(),
+  nameVi: varchar("name_vi", { length: 255 }).notNull(),
+  nameEn: varchar("name_en", { length: 255 }),
+  category: varchar("category", { length: 128 }).notNull(),
+  caloriesKcal: numeric("calories_kcal", { precision: 7, scale: 2 }).notNull(),
+  proteinG: numeric("protein_g", { precision: 6, scale: 2 }),
+  totalFatG: numeric("total_fat_g", { precision: 6, scale: 2 }),
+  carbohydrateG: numeric("carbohydrate_g", { precision: 6, scale: 2 }),
+  sugarG: numeric("sugar_g", { precision: 6, scale: 2 }),
+  calciumMg: numeric("calcium_mg", { precision: 8, scale: 2 }),
+  ironMg: numeric("iron_mg", { precision: 6, scale: 2 }),
+  sodiumMg: numeric("sodium_mg", { precision: 8, scale: 2 }),
+  potassiumMg: numeric("potassium_mg", { precision: 8, scale: 2 }),
+  vitaminCMg: numeric("vitamin_c_mg", { precision: 6, scale: 2 }),
+  vitaminAIu: numeric("vitamin_a_iu", { precision: 8, scale: 2 }),
+  micronutrients: jsonb("micronutrients"),
+  dataCompleteness: dataCompletenessEnum("data_completeness").notNull(),
+  isVerified: boolean("is_verified").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+// Indexes (in migration): pg_trgm GIN on name_vi + name_en, btree on type, category.
+
+// food_logs.ts — gets a nullable FK to food_items
+export const foodLogs = pgTable("food_logs", {
+  // ...existing fields
+  foodItemId: uuid("food_item_id").references(() => foodItems.id, { onDelete: "set null" }),
+  // CHECK (food_item_id IS NOT NULL OR custom_name IS NOT NULL) — enforced in migration
+});
+
+// + food_scans + meal_plans + workouts + pt_profiles + courses
 // + enrollments + transactions + withdrawals + articles ...
 ```
 
-### 15.3. Background Jobs (BullMQ + Redis)
+### 16.3. Background Jobs (BullMQ + Redis)
 
 | Queue | Trigger | Job |
 |---|---|---|
@@ -1584,7 +1826,7 @@ export const users = pgTable("users", {
 | `pt-payout` | webhook payment PAID | Tính & cộng `pt_earnings` |
 | `cleanup-refresh-tokens` | cron daily | Xóa refresh token expired > 30 ngày |
 
-### 15.4. Security Checklist
+### 16.4. Security Checklist
 
 - [x] HTTPS only (HSTS).
 - [x] JWT RS256 với key rotation hằng quý.
@@ -1600,7 +1842,7 @@ export const users = pgTable("users", {
 - [x] PII (CCCD) lưu trên S3 với SSE-KMS, presigned URL TTL ≤ 5 phút.
 - [x] Logs không ghi password / token / signature.
 
-### 15.5. OpenAPI Specification
+### 16.5. OpenAPI Specification
 
 Phiên bản máy đọc (`openapi.yaml`) sẽ được generate từ Zod schema bằng `@asteasolutions/zod-to-openapi` và publish tại `https://api.nutricoach.vn/api/v1/docs` (Swagger UI) và `/api/v1/docs.json`. Mọi endpoint mô tả ở trên phải có Zod schema tương ứng — coi schema là source of truth, document chỉ là render.
 

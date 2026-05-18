@@ -37,7 +37,7 @@ const handleError = (res: Response, err: unknown): void => {
     const first = err.errors[0];
     sendError(
       res,
-      422,
+      400,
       'VALIDATION_ERROR',
       first?.message ?? 'Invalid request body',
     );

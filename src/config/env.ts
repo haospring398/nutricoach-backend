@@ -58,6 +58,11 @@ const envSchema = z.object({
     .transform(Number)
     .pipe(z.number()),
 
+  // Email (Resend)
+  RESEND_API_KEY: z.string().min(1, 'RESEND_API_KEY is required'),
+  EMAIL_FROM: z.string().email().default('noreply@nutricoach.vn'),
+  APP_URL: z.string().url().default('http://localhost:3000'),
+
   // CORS
   CORS_ORIGIN: z.string().default('*'),
 

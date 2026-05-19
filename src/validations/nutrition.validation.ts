@@ -5,18 +5,51 @@ const isoDateOnly = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD');
 
-export const createFoodLogSchema = z
+// Reject timestamps more than 5 minutes in the future (clock-drift guard).
+const consumedAt = z
+  .string()
+  .datetime({ offset: true })
+  .refine(
+    (s) => new Date(s).getTime() <= Date.now() + 5 * 60 * 1000,
+    'consumedAt cannot be more than 5 minutes in the future',
+  );
+
+// Mode A — log from catalog. Server snapshots macros from food_items.
+const createFoodLogModeA = z
   .object({
-    foodName: z.string().trim().min(1).max(200),
-    calories: z.number().int().min(0).max(10000),
-    proteinG: z.number().min(0).max(500).default(0),
-    carbsG: z.number().min(0).max(500).default(0),
-    fatG: z.number().min(0).max(500).default(0),
-    portion: z.number().min(0.25).max(10).default(1),
+    foodItemId: z.string().uuid('foodItemId must be a UUID'),
+    portionGrams: z.number().int().min(1).max(5000),
     mealType,
-    consumedAt: z.string().datetime({ offset: true }).optional(),
+    consumedAt,
   })
   .strict();
+
+// Mode B — custom one-off; client supplies all macros + multiplier.
+const createFoodLogModeB = z
+  .object({
+    customName: z.string().trim().min(1).max(200),
+    calories: z.number().int().min(0).max(10000),
+    macros: z.object({
+      proteinG: z.number().min(0).max(500),
+      carbsG: z.number().min(0).max(2000),
+      fatG: z.number().min(0).max(500),
+    }),
+    portion: z.number().min(0.25).max(10),
+    mealType,
+    consumedAt,
+  })
+  .strict();
+
+export const createFoodLogSchema = z.union([
+  createFoodLogModeA,
+  createFoodLogModeB,
+]);
+
+export type CreateFoodLogModeAInput = z.infer<typeof createFoodLogModeA>;
+export type CreateFoodLogModeBInput = z.infer<typeof createFoodLogModeB>;
+export type CreateFoodLogInput =
+  | CreateFoodLogModeAInput
+  | CreateFoodLogModeBInput;
 
 export const updateFoodLogSchema = z
   .object({
@@ -46,7 +79,6 @@ export const idParamSchema = z
   })
   .strict();
 
-export type CreateFoodLogInput = z.infer<typeof createFoodLogSchema>;
 export type UpdateFoodLogInput = z.infer<typeof updateFoodLogSchema>;
 export type DateQuery = z.infer<typeof dateQuerySchema>;
 export type IdParam = z.infer<typeof idParamSchema>;

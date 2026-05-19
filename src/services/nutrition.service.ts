@@ -1,10 +1,13 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../config/db';
 import { foodLogs, type FoodLog } from '../models/food-log.model';
+import { foodItems } from '../models/food-item.model';
 import { userMetrics } from '../models/user-metrics.model';
 import { ApiError } from '../lib/api-error';
 import type {
   CreateFoodLogInput,
+  CreateFoodLogModeAInput,
+  CreateFoodLogModeBInput,
   UpdateFoodLogInput,
 } from '../validations/nutrition.validation';
 
@@ -20,6 +23,7 @@ interface Macros {
 
 export interface FoodLogItem {
   id: string;
+  foodItemId: string | null;
   foodName: string;
   calories: number;
   macros: Macros;
@@ -30,6 +34,7 @@ export interface FoodLogItem {
 
 export interface CreatedFoodLog {
   foodLogId: string;
+  foodItemId: string | null;
   foodName: string;
   calories: number;
   macros: Macros;
@@ -85,15 +90,23 @@ export interface DailySummary {
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
 const round2 = (n: number): number => Math.round(n * 100) / 100;
+const round2Str = (n: number): string => n.toFixed(2);
+
+// Treat null DB values as 0 at the API boundary to keep the response shape
+// stable (macros are always numbers in /food-logs responses, even if Mode A
+// snapshotted from a PARTIAL catalog item).
+const numOrZero = (v: string | null): number =>
+  v === null ? 0 : Number(v);
 
 const toItem = (row: FoodLog): FoodLogItem => ({
   id: row.id,
+  foodItemId: row.foodItemId,
   foodName: row.foodName,
   calories: row.calories,
   macros: {
-    proteinG: Number(row.proteinG),
-    carbsG: Number(row.carbsG),
-    fatG: Number(row.fatG),
+    proteinG: numOrZero(row.proteinG),
+    carbsG: numOrZero(row.carbsG),
+    fatG: numOrZero(row.fatG),
   },
   portion: Number(row.portion),
   mealType: row.mealType,
@@ -102,43 +115,118 @@ const toItem = (row: FoodLog): FoodLogItem => ({
 
 const toCreated = (row: FoodLog): CreatedFoodLog => ({
   foodLogId: row.id,
+  foodItemId: row.foodItemId,
   foodName: row.foodName,
   calories: row.calories,
   macros: {
-    proteinG: Number(row.proteinG),
-    carbsG: Number(row.carbsG),
-    fatG: Number(row.fatG),
+    proteinG: numOrZero(row.proteinG),
+    carbsG: numOrZero(row.carbsG),
+    fatG: numOrZero(row.fatG),
   },
   portion: Number(row.portion),
   mealType: row.mealType,
   consumedAt: row.consumedAt,
 });
 
-export const createFoodLog = async (
-  userId: string,
+const isModeA = (
   input: CreateFoodLogInput,
+): input is CreateFoodLogModeAInput =>
+  (input as CreateFoodLogModeAInput).foodItemId !== undefined;
+
+const createFromCatalog = async (
+  userId: string,
+  input: CreateFoodLogModeAInput,
 ): Promise<CreatedFoodLog> => {
+  const [food] = await db
+    .select()
+    .from(foodItems)
+    .where(eq(foodItems.id, input.foodItemId))
+    .limit(1);
+
+  if (!food) {
+    throw new NutritionError(
+      404,
+      'FOOD_ITEM_NOT_FOUND',
+      'Food item not found',
+    );
+  }
+
+  const grams = input.portionGrams;
+  const factor = grams / 100;
+
+  const cal100 = Number(food.caloriesKcal);
+  const pro100 = food.proteinG !== null ? Number(food.proteinG) : null;
+  const fat100 = food.totalFatG !== null ? Number(food.totalFatG) : null;
+  const car100 = food.carbohydrateG !== null ? Number(food.carbohydrateG) : null;
+
   const [row] = await db
     .insert(foodLogs)
     .values({
       userId,
-      foodName: input.foodName,
-      calories: input.calories,
-      proteinG: input.proteinG.toString(),
-      carbsG: input.carbsG.toString(),
-      fatG: input.fatG.toString(),
-      portion: input.portion.toString(),
+      foodItemId: input.foodItemId,
+      foodName: food.nameVi,
+      calories: Math.round(cal100 * factor),
+      proteinG: pro100 !== null ? round2Str(pro100 * factor) : null,
+      fatG: fat100 !== null ? round2Str(fat100 * factor) : null,
+      carbsG: car100 !== null ? round2Str(car100 * factor) : null,
+      portion: round2Str(factor),
       mealType: input.mealType,
-      consumedAt: input.consumedAt ? new Date(input.consumedAt) : new Date(),
+      consumedAt: new Date(input.consumedAt),
       sourceType: 'MANUAL',
     })
     .returning();
 
   if (!row) {
-    throw new NutritionError(500, 'INTERNAL_ERROR', 'Failed to create food log');
+    throw new NutritionError(
+      500,
+      'INTERNAL_ERROR',
+      'Failed to create food log',
+    );
   }
 
   return toCreated(row);
+};
+
+const createCustom = async (
+  userId: string,
+  input: CreateFoodLogModeBInput,
+): Promise<CreatedFoodLog> => {
+  const [row] = await db
+    .insert(foodLogs)
+    .values({
+      userId,
+      foodItemId: null,
+      foodName: input.customName,
+      calories: input.calories,
+      proteinG: round2Str(input.macros.proteinG),
+      carbsG: round2Str(input.macros.carbsG),
+      fatG: round2Str(input.macros.fatG),
+      portion: round2Str(input.portion),
+      mealType: input.mealType,
+      consumedAt: new Date(input.consumedAt),
+      sourceType: 'MANUAL',
+    })
+    .returning();
+
+  if (!row) {
+    throw new NutritionError(
+      500,
+      'INTERNAL_ERROR',
+      'Failed to create food log',
+    );
+  }
+
+  return toCreated(row);
+};
+
+export const createFoodLog = async (
+  userId: string,
+  input: CreateFoodLogInput,
+): Promise<CreatedFoodLog> => {
+  if (isModeA(input)) {
+    return createFromCatalog(userId, input);
+  }
+  return createCustom(userId, input);
 };
 
 const fetchLogsForDate = async (
@@ -274,9 +362,9 @@ export const getDailySummary = async (
   for (const row of rows) {
     const cal = row.calories;
     consumed.calories += cal;
-    consumed.proteinG += Number(row.proteinG);
-    consumed.carbsG += Number(row.carbsG);
-    consumed.fatG += Number(row.fatG);
+    consumed.proteinG += numOrZero(row.proteinG);
+    consumed.carbsG += numOrZero(row.carbsG);
+    consumed.fatG += numOrZero(row.fatG);
 
     switch (row.mealType) {
       case 'BREAKFAST':

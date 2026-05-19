@@ -29,6 +29,20 @@
       "when": 1778964614461,
       "tag": "0003_abnormal_lifeguard",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1779205991185,
+      "tag": "0004_faulty_toad_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1779207103167,
+      "tag": "0005_fix_category_length",
+      "breakpoints": true
     }
   ]
 }

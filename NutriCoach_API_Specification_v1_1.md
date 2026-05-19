@@ -2,7 +2,7 @@
 
 > **Tài liệu API Specification chính thức** cho dự án NutriCoach. Tuân thủ chuẩn REST + OpenAPI 3.1. Đây là **single source of truth** cho cả Backend team (Node.js + Express + TypeScript + Drizzle ORM) và Mobile team.
 >
-> **Version:** 1.1.0 · **Last updated:** 2026-05-18 · **Maintainer:** Backend Team
+> **Version:** 1.1.0 · **Last updated:** 2026-05-19 · **Maintainer:** Backend Team
 
 ---
 
@@ -1054,8 +1054,10 @@ Lấy meal plan đang dùng của user. Trả mảng `days[]`, mỗi day có `me
 ```
 
 Backend lookup `food_items.id`, đọc macro per-100g, **snapshot** vào food_log row:
-- `calories = caloriesPer100g × portionGrams / 100`
-- `proteinG = proteinPer100g × portionGrams / 100` (và tương tự cho fat/carb)
+- `calories = Math.round(caloriesPer100g × portionGrams / 100)` → cột `food_logs.calories` là **INTEGER**, bắt buộc làm tròn.
+- `proteinG, fatG, carbsG = perValue × portionGrams / 100` → lưu vào cột `protein_g`, `fat_g`, `carbs_g` (numeric).
+- `portion = portionGrams / 100` → cột `food_logs.portion` là **multiplier** numeric(4,2), không phải gram (ví dụ: 250g → portion = 2.50).
+- `food_name = food_items.name_vi` → cột `food_name` (NOT NULL) lưu denormalized snapshot label, để khi PT/user xem lại lịch sử vẫn thấy tên món, kể cả khi catalog bị edit.
 - Lưu `foodItemId` vào FK column để analytics sau này, nhưng các giá trị macro **không** đọc lại từ FK — đảm bảo lịch sử ăn uống bất biến kể cả khi catalog được update.
 
 **Chế độ B — custom one-off (không có trong catalog):**
@@ -1065,15 +1067,18 @@ Backend lookup `food_items.id`, đọc macro per-100g, **snapshot** vào food_lo
   "customName": "Bánh mì mẹ làm",
   "calories": 320,
   "macros": { "proteinG": 12, "carbsG": 45, "fatG": 10 },
-  "portionGrams": 150,
+  "portion": 1.5,
   "mealType": "BREAKFAST",
   "consumedAt": "2026-05-13T07:30:00.000Z"
 }
 ```
 
+> **Mapping API → DB:** `customName` → `food_logs.food_name`; `macros.carbsG` → `carbs_g`; `macros.fatG` → `fat_g`; `macros.proteinG` → `protein_g`; `portion` → `portion` (multiplier as-is); `calories` → `calories` (integer, server validates `Number.isInteger`).
+
 **Validation (Zod discriminated union):**
 - Phải có đúng 1 trong 2: `foodItemId` HOẶC `customName + calories + macros`.
-- `portionGrams`: number, 1–5000.
+- **Chế độ A:** `portionGrams` — integer, 1–5,000 (đơn vị gram).
+- **Chế độ B:** `portion` — number, 0.25–10 (multiplier khẩu phần). `calories` — integer, 0–10,000.
 - `mealType`: enum `BREAKFAST | LUNCH | DINNER | SNACK`.
 - `consumedAt`: ISO 8601 UTC, không lớn hơn `now() + 5 min` (chống lag clock).
 
@@ -1806,10 +1811,19 @@ export const foodItems = pgTable("food_items", {
 // Indexes (in migration): pg_trgm GIN on name_vi + name_en, btree on type, category.
 
 // food_logs.ts — gets a nullable FK to food_items
+// EXISTING columns (already in DB, do NOT redefine):
+//   foodName: varchar("food_name", { length: 200 }).notNull()  — free-text label (used for both modes; in Mode A populated with food_items.name_vi)
+//   portion:  numeric("portion", { precision: 4, scale: 2 })   — multiplier (250g of catalog item → 2.50)
+//   calories: integer("calories").notNull()                    — INTEGER, use Math.round() in Mode A
+//   proteinG: numeric("protein_g")
+//   fatG:     numeric("fat_g")     — NOT total_fat_g
+//   carbsG:   numeric("carbs_g")   — NOT carbohydrate_g
 export const foodLogs = pgTable("food_logs", {
-  // ...existing fields
+  // ...existing fields above
   foodItemId: uuid("food_item_id").references(() => foodItems.id, { onDelete: "set null" }),
-  // CHECK (food_item_id IS NOT NULL OR custom_name IS NOT NULL) — enforced in migration
+  // Added by migration:
+  // CHECK (food_item_id IS NOT NULL OR food_name IS NOT NULL)
+  // (food_name is currently NOT NULL so this is a safety net; do not drop the NOT NULL on food_name)
 });
 
 // + food_scans + meal_plans + workouts + pt_profiles + courses

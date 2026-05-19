@@ -16,7 +16,12 @@
       "Bash(chmod +x /tmp/drive_drizzle.py)",
       "Bash(timeout 100 python3 /tmp/drive_drizzle.py)",
       "Bash(timeout 80 python3 /tmp/drive_drizzle.py)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(awk -F, 'NR==1 {for\\(i=1;i<=NF;i++\\) print i\": \"$i; exit}' /home/haodx/nutricoach-backend/data/seed/vn_food.csv)",
+      "Bash(awk -F, 'NR==3 {print NF\" fields\"; for\\(i=1;i<=NF;i++\\) printf \"%2d: %s\\\\n\", i, $i; exit}' /home/haodx/nutricoach-backend/data/seed/vn_food.csv)",
+      "Bash(awk -F',' 'NR>1 {gsub\\(/^\"|\"$/,\"\",$4\\); print length\\($4\\)\"\\\\t\"$4}' /home/haodx/nutricoach-backend/data/seed/vn_food.csv /home/haodx/nutricoach-backend/data/seed/vn_dishes.csv)",
+      "Bash(python3 -c ' *)",
+      "Bash(timeout 60 python3 /tmp/drive_drizzle.py)"
     ]
   }
 }

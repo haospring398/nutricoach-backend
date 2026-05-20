@@ -43,6 +43,13 @@
       "when": 1779207103167,
       "tag": "0005_fix_category_length",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1779290000000,
+      "tag": "0006_food_logs_user_idx",
+      "breakpoints": true
     }
   ]
 }

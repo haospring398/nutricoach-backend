@@ -1,4 +1,5 @@
 import {
+  index,
   integer,
   numeric,
   pgEnum,
@@ -45,7 +46,12 @@ export const foodLogs = pgTable('food_logs', {
   sourceType: foodLogSourceEnum('source_type').notNull().default('MANUAL'),
   scanId: varchar('scan_id', { length: 100 }),
   createdAt: timestamp('created_at').notNull().defaultNow(),
-});
+}, (table) => ({
+  userConsumedIdx: index('food_logs_user_consumed_idx').on(
+    table.userId,
+    table.consumedAt,
+  ),
+}));
 
 export type FoodLog = typeof foodLogs.$inferSelect;
 export type NewFoodLog = typeof foodLogs.$inferInsert;

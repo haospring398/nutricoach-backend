@@ -50,6 +50,13 @@
       "when": 1779290000000,
       "tag": "0006_food_logs_user_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1779353874335,
+      "tag": "0007_outstanding_hex",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,893 @@
+[
+  {
+    "id": "ex_pushup_standard",
+    "nameVi": "Hít đất tiêu chuẩn",
+    "nameEn": "Standard Push-Up",
+    "muscleGroups": ["chest", "triceps", "shoulders"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 7.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": "IODxDxX7oi4",
+    "instructions": [
+      "Đặt hai tay rộng bằng vai, cơ thể tạo thành đường thẳng từ đầu đến gót chân.",
+      "Hạ thấp người cho đến khi ngực gần chạm sàn, giữ khuỷu tay tạo góc khoảng 45 độ với thân.",
+      "Đẩy người lên về vị trí ban đầu, siết chặt cơ ngực và cơ tay sau.",
+      "Hít vào khi hạ xuống, thở ra khi đẩy lên."
+    ],
+    "commonMistakes": [
+      "Hông võng xuống hoặc nhô lên thay vì giữ thẳng.",
+      "Khuỷu tay bè ra 90 độ làm căng khớp vai.",
+      "Không hạ đủ sâu để ngực gần chạm sàn."
+    ],
+    "variations": [
+      { "id": "ex_pushup_incline", "name": "Hít đất nghiêng (dễ hơn)" },
+      { "id": "ex_pushup_decline", "name": "Hít đất dốc xuống (khó hơn)" }
+    ]
+  },
+  {
+    "id": "ex_pushup_incline",
+    "nameVi": "Hít đất nghiêng",
+    "nameEn": "Incline Push-Up",
+    "muscleGroups": ["chest", "triceps", "shoulders"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 6.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Chống tay lên một bề mặt cao như ghế hoặc bậc thang.",
+      "Giữ thân người thẳng, hạ ngực về phía bề mặt.",
+      "Đẩy người lên, siết cơ ngực."
+    ],
+    "commonMistakes": [
+      "Bề mặt chống tay không vững gây mất an toàn.",
+      "Hông võng do không siết cơ bụng."
+    ],
+    "variations": [
+      { "id": "ex_pushup_standard", "name": "Hít đất tiêu chuẩn" }
+    ]
+  },
+  {
+    "id": "ex_pushup_decline",
+    "nameVi": "Hít đất dốc xuống",
+    "nameEn": "Decline Push-Up",
+    "muscleGroups": ["chest", "shoulders", "triceps"],
+    "equipment": "bodyweight",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 8.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đặt hai chân lên bề mặt cao, hai tay chống sàn rộng bằng vai.",
+      "Hạ người xuống cho đến khi ngực gần chạm sàn.",
+      "Đẩy mạnh lên, tập trung vào phần ngực trên."
+    ],
+    "commonMistakes": [
+      "Đặt chân quá cao làm dồn áp lực lên cổ tay và vai.",
+      "Không giữ thân thẳng khi hạ xuống."
+    ],
+    "variations": [
+      { "id": "ex_pushup_standard", "name": "Hít đất tiêu chuẩn" }
+    ]
+  },
+  {
+    "id": "ex_bench_press_db",
+    "nameVi": "Đẩy ngực với tạ đơn",
+    "nameEn": "Dumbbell Bench Press",
+    "muscleGroups": ["chest", "triceps", "shoulders"],
+    "equipment": "dumbbell",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 5.8,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Nằm ngửa trên ghế phẳng, mỗi tay cầm một tạ đơn ngang ngực.",
+      "Đẩy tạ lên thẳng cho đến khi hai tay gần duỗi thẳng.",
+      "Hạ tạ xuống có kiểm soát về ngang ngực."
+    ],
+    "commonMistakes": [
+      "Hạ tạ quá nhanh, mất kiểm soát.",
+      "Cong lưng quá mức khỏi ghế."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_pullup",
+    "nameVi": "Hít xà đơn",
+    "nameEn": "Pull-Up",
+    "muscleGroups": ["back", "biceps"],
+    "equipment": "bodyweight",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 8.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Nắm xà với lòng bàn tay hướng ra ngoài, rộng hơn vai.",
+      "Kéo người lên cho đến khi cằm vượt qua xà.",
+      "Hạ xuống có kiểm soát về vị trí treo thẳng tay."
+    ],
+    "commonMistakes": [
+      "Đu người lấy đà thay vì dùng lực cơ lưng.",
+      "Không hạ hết tầm, co cơ một nửa."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_lat_pulldown",
+    "nameVi": "Kéo xô máy",
+    "nameEn": "Lat Pulldown",
+    "muscleGroups": ["back", "biceps"],
+    "equipment": "machine",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 5.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Ngồi vào máy, nắm thanh kéo rộng hơn vai.",
+      "Kéo thanh xuống trước ngực, siết hai bả vai.",
+      "Thả thanh lên từ từ về vị trí ban đầu."
+    ],
+    "commonMistakes": [
+      "Ngả người ra sau quá nhiều để lấy đà.",
+      "Kéo thanh xuống sau gáy gây căng vai."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_bent_over_row_bb",
+    "nameVi": "Chèo tạ đòn cúi người",
+    "nameEn": "Bent-Over Barbell Row",
+    "muscleGroups": ["back", "biceps"],
+    "equipment": "barbell",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 5.8,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Cúi người về phía trước khoảng 45 độ, giữ lưng thẳng, nắm thanh tạ rộng bằng vai.",
+      "Kéo thanh tạ lên về phía bụng dưới, siết cơ lưng.",
+      "Hạ thanh tạ xuống có kiểm soát."
+    ],
+    "commonMistakes": [
+      "Cong lưng khi kéo tạ, dễ chấn thương cột sống.",
+      "Dùng lực giật thay vì kéo có kiểm soát."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_seated_cable_row",
+    "nameVi": "Chèo cáp ngồi",
+    "nameEn": "Seated Cable Row",
+    "muscleGroups": ["back", "biceps"],
+    "equipment": "cable",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 5.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Ngồi thẳng, hai chân tì vào bàn đạp, nắm tay cầm cáp.",
+      "Kéo tay cầm về phía bụng, siết hai bả vai lại.",
+      "Duỗi tay về phía trước có kiểm soát."
+    ],
+    "commonMistakes": [
+      "Ngả người tới lui để lấy đà.",
+      "Khom lưng khi duỗi tay ra trước."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_overhead_press_bb",
+    "nameVi": "Đẩy vai qua đầu với tạ đòn",
+    "nameEn": "Overhead Barbell Press",
+    "muscleGroups": ["shoulders", "triceps"],
+    "equipment": "barbell",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 5.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, nắm thanh tạ ngang vai, lòng bàn tay hướng ra trước.",
+      "Đẩy thanh tạ thẳng lên qua đầu cho đến khi tay duỗi thẳng.",
+      "Hạ thanh tạ xuống ngang vai có kiểm soát."
+    ],
+    "commonMistakes": [
+      "Cong lưng quá mức khi đẩy tạ lên.",
+      "Đẩy tạ ra trước thay vì thẳng lên."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_lateral_raise_db",
+    "nameVi": "Nâng tạ ngang vai",
+    "nameEn": "Dumbbell Lateral Raise",
+    "muscleGroups": ["shoulders"],
+    "equipment": "dumbbell",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, mỗi tay cầm một tạ đơn bên hông.",
+      "Nâng hai tay sang ngang đến ngang vai, khuỷu tay hơi cong.",
+      "Hạ tạ xuống từ từ về vị trí ban đầu."
+    ],
+    "commonMistakes": [
+      "Dùng tạ quá nặng phải vung người lấy đà.",
+      "Nâng tay cao quá vai gây căng khớp."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_front_raise_db",
+    "nameVi": "Nâng tạ trước mặt",
+    "nameEn": "Dumbbell Front Raise",
+    "muscleGroups": ["shoulders"],
+    "equipment": "dumbbell",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, cầm tạ đơn trước đùi, lòng bàn tay hướng vào người.",
+      "Nâng tạ thẳng ra trước đến ngang vai.",
+      "Hạ tạ xuống có kiểm soát."
+    ],
+    "commonMistakes": [
+      "Đung đưa thân người để lấy đà.",
+      "Nâng tạ cao quá vai."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_squat_bb",
+    "nameVi": "Squat với tạ đòn",
+    "nameEn": "Barbell Squat",
+    "muscleGroups": ["legs", "glutes"],
+    "equipment": "barbell",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 5.8,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đặt thanh tạ lên phần cơ thang trên, đứng rộng bằng vai.",
+      "Hạ người xuống như ngồi ghế cho đến khi đùi song song mặt sàn.",
+      "Đẩy gót chân để đứng lên về vị trí ban đầu."
+    ],
+    "commonMistakes": [
+      "Đầu gối chụm vào trong khi đứng lên.",
+      "Gót chân nhấc khỏi sàn.",
+      "Cong lưng dưới khi hạ sâu."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_lunge_db",
+    "nameVi": "Lunge với tạ đơn",
+    "nameEn": "Dumbbell Lunge",
+    "muscleGroups": ["legs", "glutes"],
+    "equipment": "dumbbell",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 6.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, mỗi tay cầm một tạ đơn bên hông.",
+      "Bước một chân về trước, hạ người cho đến khi cả hai đầu gối tạo góc 90 độ.",
+      "Đẩy chân trước để trở về tư thế đứng, đổi chân."
+    ],
+    "commonMistakes": [
+      "Đầu gối trước vượt quá mũi chân.",
+      "Thân người đổ về trước thay vì giữ thẳng."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_leg_press",
+    "nameVi": "Đạp đùi máy",
+    "nameEn": "Leg Press",
+    "muscleGroups": ["legs", "glutes"],
+    "equipment": "machine",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 5.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Ngồi vào máy, đặt hai chân lên bàn đạp rộng bằng vai.",
+      "Hạ tải xuống cho đến khi đầu gối gập khoảng 90 độ.",
+      "Đẩy bàn đạp ra cho đến khi chân gần duỗi thẳng."
+    ],
+    "commonMistakes": [
+      "Duỗi thẳng khóa khớp gối hoàn toàn.",
+      "Hạ tải quá sâu làm nhấc mông khỏi đệm."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_romanian_deadlift",
+    "nameVi": "Romanian Deadlift",
+    "nameEn": "Romanian Deadlift",
+    "muscleGroups": ["legs", "glutes"],
+    "equipment": "barbell",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 5.8,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng cầm thanh tạ trước đùi, đầu gối hơi cong.",
+      "Đẩy hông ra sau, hạ thanh tạ dọc theo chân, giữ lưng thẳng.",
+      "Siết cơ mông và đùi sau để kéo người về tư thế đứng."
+    ],
+    "commonMistakes": [
+      "Cong lưng dưới thay vì gập từ hông.",
+      "Hạ tạ quá thấp khiến lưng mất tư thế."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_calf_raise",
+    "nameVi": "Nhón bắp chân",
+    "nameEn": "Calf Raise",
+    "muscleGroups": ["legs"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, hai chân rộng bằng hông.",
+      "Nhón gót lên cao hết mức, siết bắp chân.",
+      "Hạ gót xuống từ từ về sàn."
+    ],
+    "commonMistakes": [
+      "Nhún nhanh không kiểm soát.",
+      "Không nhón hết tầm chuyển động."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_hip_thrust_bb",
+    "nameVi": "Đẩy hông với tạ đòn",
+    "nameEn": "Barbell Hip Thrust",
+    "muscleGroups": ["glutes", "legs"],
+    "equipment": "barbell",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 5.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Tựa lưng trên vào ghế, đặt thanh tạ ngang hông.",
+      "Đẩy hông lên cho đến khi thân và đùi tạo đường thẳng.",
+      "Siết cơ mông ở đỉnh, rồi hạ hông xuống."
+    ],
+    "commonMistakes": [
+      "Ưỡn lưng dưới thay vì siết cơ mông.",
+      "Không đẩy hông lên hết tầm."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_glute_bridge",
+    "nameVi": "Cầu mông",
+    "nameEn": "Glute Bridge",
+    "muscleGroups": ["glutes", "core"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Nằm ngửa, gập gối, hai bàn chân đặt sát mông.",
+      "Đẩy hông lên cho đến khi thân thẳng hàng với đùi.",
+      "Siết cơ mông một nhịp rồi hạ xuống."
+    ],
+    "commonMistakes": [
+      "Đẩy bằng lưng dưới thay vì cơ mông.",
+      "Bàn chân đặt quá xa mông."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_bulgarian_split_squat",
+    "nameVi": "Squat một chân kiểu Bulgaria",
+    "nameEn": "Bulgarian Split Squat",
+    "muscleGroups": ["glutes", "legs"],
+    "equipment": "dumbbell",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 6.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đặt mu bàn chân sau lên ghế, chân trước bước ra trước.",
+      "Hạ người xuống cho đến khi đùi trước song song mặt sàn.",
+      "Đẩy gót chân trước để đứng lên."
+    ],
+    "commonMistakes": [
+      "Chân trước đặt quá gần ghế làm gối vượt mũi chân.",
+      "Mất thăng bằng do thân người nghiêng."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_db_curl",
+    "nameVi": "Cuốn tạ đơn",
+    "nameEn": "Dumbbell Biceps Curl",
+    "muscleGroups": ["biceps"],
+    "equipment": "dumbbell",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, mỗi tay cầm một tạ đơn, lòng bàn tay hướng ra trước.",
+      "Cuốn tạ lên về phía vai, giữ khuỷu tay cố định.",
+      "Hạ tạ xuống từ từ về vị trí ban đầu."
+    ],
+    "commonMistakes": [
+      "Đung đưa thân người để lấy đà.",
+      "Khuỷu tay di chuyển ra trước thay vì cố định."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_hammer_curl",
+    "nameVi": "Cuốn tạ kiểu búa",
+    "nameEn": "Hammer Curl",
+    "muscleGroups": ["biceps"],
+    "equipment": "dumbbell",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, cầm tạ đơn với lòng bàn tay hướng vào nhau.",
+      "Cuốn tạ lên về phía vai, giữ cổ tay trung tính.",
+      "Hạ tạ xuống có kiểm soát."
+    ],
+    "commonMistakes": [
+      "Xoay cổ tay khi cuốn tạ.",
+      "Dùng lực giật thay vì kiểm soát."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_tricep_extension_db",
+    "nameVi": "Duỗi tay sau với tạ đơn",
+    "nameEn": "Dumbbell Triceps Extension",
+    "muscleGroups": ["triceps"],
+    "equipment": "dumbbell",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Cầm một tạ đơn bằng hai tay, đưa qua đầu.",
+      "Hạ tạ ra sau đầu bằng cách gập khuỷu tay.",
+      "Duỗi tay thẳng lên, siết cơ tay sau."
+    ],
+    "commonMistakes": [
+      "Khuỷu tay bè ra ngoài thay vì giữ sát đầu.",
+      "Hạ tạ quá nhanh mất kiểm soát."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_tricep_dip",
+    "nameVi": "Chống đẩy xà kép",
+    "nameEn": "Triceps Dip",
+    "muscleGroups": ["triceps", "chest"],
+    "equipment": "bodyweight",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 6.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Chống hai tay lên xà kép hoặc cạnh ghế, thân treo thẳng.",
+      "Hạ người xuống cho đến khi khuỷu tay gập 90 độ.",
+      "Đẩy người lên về vị trí ban đầu, siết cơ tay sau."
+    ],
+    "commonMistakes": [
+      "Hạ người quá sâu gây căng khớp vai.",
+      "Khuỷu tay bè ra ngoài."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_plank",
+    "nameVi": "Plank giữ thẳng",
+    "nameEn": "Plank",
+    "muscleGroups": ["core", "shoulders"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 3.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Chống hai khuỷu tay xuống sàn ngay dưới vai.",
+      "Giữ cơ thể thành đường thẳng từ đầu đến gót chân.",
+      "Siết cơ bụng và cơ mông, giữ tư thế và thở đều."
+    ],
+    "commonMistakes": [
+      "Hông nhô lên cao hoặc võng xuống.",
+      "Nín thở khi giữ tư thế."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_crunch",
+    "nameVi": "Gập bụng",
+    "nameEn": "Crunch",
+    "muscleGroups": ["core"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 4.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Nằm ngửa, gập gối, hai tay đặt sau đầu nhẹ nhàng.",
+      "Cuốn phần thân trên lên, siết cơ bụng.",
+      "Hạ thân xuống từ từ về sàn."
+    ],
+    "commonMistakes": [
+      "Dùng tay kéo cổ về trước.",
+      "Cuốn người bằng đà thay vì siết cơ bụng."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_russian_twist",
+    "nameVi": "Xoay người kiểu Nga",
+    "nameEn": "Russian Twist",
+    "muscleGroups": ["core"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 5.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Ngồi trên sàn, ngả người ra sau khoảng 45 độ, nhấc chân khỏi sàn.",
+      "Xoay thân người sang hai bên luân phiên.",
+      "Giữ cơ bụng siết chặt trong suốt động tác."
+    ],
+    "commonMistakes": [
+      "Chỉ xoay tay mà không xoay thân.",
+      "Khom lưng làm mất tư thế cột sống."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_leg_raise",
+    "nameVi": "Nâng chân nằm ngửa",
+    "nameEn": "Lying Leg Raise",
+    "muscleGroups": ["core"],
+    "equipment": "bodyweight",
+    "difficulty": "intermediate",
+    "caloriesPerMinute": 4.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Nằm ngửa, hai chân duỗi thẳng, hai tay đặt xuôi thân.",
+      "Nâng hai chân lên đến vuông góc với sàn.",
+      "Hạ chân xuống chậm rãi mà không chạm sàn."
+    ],
+    "commonMistakes": [
+      "Lưng dưới vênh khỏi sàn khi hạ chân.",
+      "Dùng đà để vung chân lên."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_mountain_climber",
+    "nameVi": "Leo núi tại chỗ",
+    "nameEn": "Mountain Climber",
+    "muscleGroups": ["core", "cardio"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 9.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Vào tư thế chống đẩy cao, thân thẳng.",
+      "Kéo luân phiên từng đầu gối về phía ngực nhanh chóng.",
+      "Giữ hông thấp và cơ bụng siết chặt."
+    ],
+    "commonMistakes": [
+      "Hông nhô cao khi tăng tốc độ.",
+      "Bàn tay không đặt thẳng dưới vai."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_jumping_jacks",
+    "nameVi": "Nhảy dang tay chân",
+    "nameEn": "Jumping Jacks",
+    "muscleGroups": ["cardio", "full_body"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 8.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, hai chân khép, hai tay xuôi thân.",
+      "Nhảy dang hai chân ra ngoài đồng thời vung tay qua đầu.",
+      "Nhảy về tư thế ban đầu, lặp lại nhịp đều."
+    ],
+    "commonMistakes": [
+      "Tiếp đất bằng cả bàn chân gây dội khớp.",
+      "Tay không vung hết tầm."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_burpees",
+    "nameVi": "Burpee toàn thân",
+    "nameEn": "Burpees",
+    "muscleGroups": ["cardio", "full_body"],
+    "equipment": "bodyweight",
+    "difficulty": "advanced",
+    "caloriesPerMinute": 11.7,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Từ tư thế đứng, ngồi xổm và chống tay xuống sàn.",
+      "Bật hai chân ra sau vào tư thế chống đẩy, hạ ngực rồi đẩy lên.",
+      "Thu chân về và bật nhảy thẳng lên cao."
+    ],
+    "commonMistakes": [
+      "Bỏ qua phần hít đất để làm nhanh.",
+      "Lưng võng khi vào tư thế chống đẩy."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_high_knees",
+    "nameVi": "Chạy nâng cao gối",
+    "nameEn": "High Knees",
+    "muscleGroups": ["cardio", "legs"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 9.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng thẳng, hai chân rộng bằng hông.",
+      "Chạy tại chỗ, nâng từng đầu gối lên cao ngang hông.",
+      "Vung tay nhịp nhàng và giữ tốc độ đều."
+    ],
+    "commonMistakes": [
+      "Không nâng gối đủ cao.",
+      "Khom người về trước."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_jump_rope",
+    "nameVi": "Nhảy dây",
+    "nameEn": "Jump Rope",
+    "muscleGroups": ["cardio"],
+    "equipment": "other",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 11.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Cầm hai đầu dây, dây đặt sau gót chân.",
+      "Quăng dây qua đầu và bật nhảy nhẹ qua dây.",
+      "Tiếp đất bằng mũi chân, giữ nhịp đều."
+    ],
+    "commonMistakes": [
+      "Nhảy quá cao gây tốn sức.",
+      "Quay dây bằng cả cánh tay thay vì cổ tay."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_deadlift_bb",
+    "nameVi": "Deadlift với tạ đòn",
+    "nameEn": "Barbell Deadlift",
+    "muscleGroups": ["full_body", "back", "legs"],
+    "equipment": "barbell",
+    "difficulty": "advanced",
+    "caloriesPerMinute": 6.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Đứng sát thanh tạ, hai chân rộng bằng hông, cúi nắm thanh tạ.",
+      "Giữ lưng thẳng, đẩy gót chân để nâng thanh tạ lên dọc theo chân.",
+      "Đứng thẳng siết cơ mông, rồi hạ thanh tạ xuống có kiểm soát."
+    ],
+    "commonMistakes": [
+      "Cong lưng dưới khi nâng tạ.",
+      "Kéo tạ xa khỏi thân người.",
+      "Duỗi gối trước khi nâng hông."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_clean_and_press",
+    "nameVi": "Clean and Press",
+    "nameEn": "Clean and Press",
+    "muscleGroups": ["full_body", "shoulders", "legs"],
+    "equipment": "barbell",
+    "difficulty": "advanced",
+    "caloriesPerMinute": 8.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Nâng thanh tạ từ sàn lên ngang vai trong một động tác dứt khoát.",
+      "Đẩy thanh tạ qua đầu cho đến khi tay duỗi thẳng.",
+      "Hạ thanh tạ về vai rồi về sàn có kiểm soát."
+    ],
+    "commonMistakes": [
+      "Dùng lưng thay vì chân để nâng tạ.",
+      "Mất nhịp giữa pha kéo và pha đẩy."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_cat_cow",
+    "nameVi": "Tư thế mèo - bò",
+    "nameEn": "Cat-Cow Stretch",
+    "muscleGroups": ["back", "core"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 2.7,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Quỳ chống hai tay và đầu gối xuống sàn.",
+      "Hít vào, võng lưng xuống và ngẩng đầu lên (tư thế bò).",
+      "Thở ra, cong lưng lên và cúi đầu xuống (tư thế mèo)."
+    ],
+    "commonMistakes": [
+      "Chuyển động quá nhanh, không theo nhịp thở.",
+      "Khuỷu tay khóa cứng."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_child_pose",
+    "nameVi": "Tư thế em bé",
+    "nameEn": "Child's Pose",
+    "muscleGroups": ["back"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 2.3,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Quỳ trên sàn, ngồi mông lên gót chân.",
+      "Gập người về trước, duỗi hai tay thẳng ra phía trước.",
+      "Thả lỏng trán xuống sàn và hít thở sâu."
+    ],
+    "commonMistakes": [
+      "Gồng vai thay vì thả lỏng.",
+      "Nín thở thay vì thở sâu đều."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_hamstring_stretch",
+    "nameVi": "Giãn cơ đùi sau",
+    "nameEn": "Hamstring Stretch",
+    "muscleGroups": ["legs"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 2.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Ngồi trên sàn, một chân duỗi thẳng, chân kia gập vào.",
+      "Gập người về phía bàn chân duỗi, giữ lưng thẳng.",
+      "Giữ tư thế và hít thở đều, sau đó đổi chân."
+    ],
+    "commonMistakes": [
+      "Gập lưng thay vì gập từ hông.",
+      "Giật người để với xa hơn."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_hip_flexor_stretch",
+    "nameVi": "Giãn cơ gập hông",
+    "nameEn": "Hip Flexor Stretch",
+    "muscleGroups": ["legs"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 2.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Quỳ một gối xuống sàn, chân kia bước ra trước gập 90 độ.",
+      "Đẩy hông nhẹ về phía trước cho đến khi cảm thấy căng ở mặt trước hông.",
+      "Giữ tư thế, hít thở đều rồi đổi bên."
+    ],
+    "commonMistakes": [
+      "Ưỡn lưng dưới thay vì siết cơ mông.",
+      "Đầu gối trước vượt quá mũi chân."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_downward_dog",
+    "nameVi": "Tư thế chó úp mặt",
+    "nameEn": "Downward Dog",
+    "muscleGroups": ["full_body"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 3.0,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Bắt đầu ở tư thế chống tay và gối, hai tay rộng bằng vai.",
+      "Đẩy hông lên cao tạo thành hình chữ V ngược.",
+      "Duỗi thẳng lưng và chân, gót chân hướng xuống sàn."
+    ],
+    "commonMistakes": [
+      "Cong lưng do gân kheo căng.",
+      "Dồn trọng lượng quá nhiều lên cổ tay."
+    ],
+    "variations": []
+  },
+  {
+    "id": "ex_worlds_greatest_stretch",
+    "nameVi": "Động tác giãn cơ toàn thân",
+    "nameEn": "World's Greatest Stretch",
+    "muscleGroups": ["full_body"],
+    "equipment": "bodyweight",
+    "difficulty": "beginner",
+    "caloriesPerMinute": 3.5,
+    "thumbnailUrl": null,
+    "animation2dUrl": null,
+    "youtubeVideoId": null,
+    "instructions": [
+      "Bước một chân dài về trước vào tư thế lunge sâu.",
+      "Đặt tay cùng bên chân trước xuống sàn, tay kia xoay mở lên trần.",
+      "Giữ một nhịp rồi đổi bên, lặp lại luân phiên."
+    ],
+    "commonMistakes": [
+      "Không xoay đủ thân trên khi mở tay.",
+      "Đầu gối sau chạm sàn quá mạnh."
+    ],
+    "variations": []
+  }
+]

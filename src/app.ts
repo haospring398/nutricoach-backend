@@ -17,7 +17,17 @@ app.use(
 );
 
 // ── Body parsing ─────────────────────────────────────────────
-app.use(express.json({ limit: '10mb' }));
+// The `verify` callback stashes the raw request bytes on `req.rawBody`,
+// which the PayOS webhook handler parses itself (signature verification
+// must run against the bytes as sent, not the re-serialized JSON).
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      (req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8');
+    },
+  }),
+);
 app.use(express.urlencoded({ extended: true }));
 
 // ── Logging ──────────────────────────────────────────────────

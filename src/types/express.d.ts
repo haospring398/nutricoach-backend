@@ -10,6 +10,9 @@ declare global {
 
     interface Request {
       user?: UserPayload;
+      // Raw request body bytes, captured by the express.json verify callback.
+      // Used by the PayOS webhook handler for signature verification.
+      rawBody?: string;
     }
   }
 }

@@ -10,7 +10,8 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 - **Content-Type:** `application/json` for all request/response bodies
 - **Response envelope:**
   - Success: `{ "success": true, "data": <payload> }`
-  - Paginated success (search only): `{ "success": true, "data": [...], "pagination": {...} }`
+  - Paginated success (list endpoints): `{ "success": true, "data": [...], "pagination": { "page", "limit", "totalItems", "totalPages", "hasNext", "hasPrev" } }`
+  - PayOS webhook is the one exception — see its entry.
   - Error:   `{ "success": false, "error": { "code": "STRING_CODE", "message": "Human readable" } }`
   - `204 No Content` responses have no body.
 - **Authenticated routes** can additionally return these errors from the auth middleware (in addition to anything listed per-endpoint). The middleware fetches the user row on every request to enforce soft-delete:
@@ -23,8 +24,8 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented: **Auth (9), Users (6), Nutrition (5), Foods (3)**
-- Planned: Scan, Workout, PT, Payment, Dashboard
+- Implemented: **Auth (9), Users (6), Nutrition (5), Foods (3), Dashboard (1), Payment (4), Workout (7)**
+- Planned: Scan, PT
 
 ---
 
@@ -722,6 +723,372 @@ All endpoints require auth.
 
 ---
 
+## Dashboard — `/api/v1/dashboard`
+
+### GET /api/v1/dashboard/user
+
+- Auth: required
+- Request: none
+- Behavior: aggregates the caller's home-screen data for "today" in the `Asia/Ho_Chi_Minh` timezone.
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "date": "2026-05-21",
+      "timezone": "Asia/Ho_Chi_Minh",
+      "todayCalories": {
+        "consumed": 1450,
+        "target": 2124,
+        "remaining": 674,
+        "progressPercent": 68.3
+      },
+      "todayMacros": {
+        "consumed": { "proteinG": 95.2, "carbsG": 145.5, "fatG": 48.3 },
+        "target": { "proteinG": 159, "carbsG": 212, "fatG": 71 }
+      },
+      "mealsBreakdown": { "BREAKFAST": 420, "LUNCH": 670, "DINNER": 0, "SNACK": 360 },
+      "streakDays": 12,
+      "lastLoggedAt": "2026-05-21T13:45:00.000Z",
+      "currentWeightKg": 72.5,
+      "targetWeightKg": 68,
+      "weightTrend7dKg": null,
+      "goal": "LOSE_WEIGHT",
+      "tier": "FREE",
+      "onboardingCompleted": true,
+      "upcomingMeals": [],
+      "todayExercises": [],
+      "weeklyWorkouts": null
+    }
+  }
+  ```
+  - When the user has not completed onboarding: `todayCalories.target`, `todayCalories.remaining`, `todayCalories.progressPercent`, `todayMacros.target`, `currentWeightKg`, `targetWeightKg`, and `goal` are `null`. `consumed`, `mealsBreakdown`, `streakDays`, `lastLoggedAt` still work.
+  - `weightTrend7dKg` / `weeklyWorkouts` are always `null`, `upcomingMeals` / `todayExercises` always `[]` — stable placeholders for unbuilt features.
+  - `streakDays` = consecutive VN calendar days with ≥1 food log, counting back from today (today excluded if not yet logged).
+- Errors:
+  - `404 USER_NOT_FOUND` — defensive fallback (practically unreachable after middleware)
+  - `500 INTERNAL_ERROR`
+
+---
+
+## Payment — `/api/v1/payment`
+
+PRO subscriptions via PayOS. PT-course payments are not in v1.
+
+### POST /api/v1/payment/checkout
+
+- Auth: required
+- Request:
+  - header `Idempotency-Key`: UUID (required) — a repeated key returns the first call's cached response
+  - body (unknown keys rejected by `.strict()`)
+    - `productType`: enum `"PRO_MONTHLY" | "PRO_YEARLY"` (`PT_COURSE` is rejected in v1)
+    - `returnUrl` (optional): valid URL — defaults to `nutricoach://payment/success`
+    - `cancelUrl` (optional): valid URL — defaults to `nutricoach://payment/cancel`
+- Behavior: creates a `pending` transaction and a PayOS payment link. The response (including `qrCode`) is cached in Redis under the idempotency key for 24h.
+- Response: **`201 Created`** on the first call, **`200 OK`** on an idempotent replay (identical body)
+  ```json
+  {
+    "success": true,
+    "data": {
+      "transactionId": "uuid",
+      "orderCode": 1779291633504042,
+      "productType": "PRO_MONTHLY",
+      "amountVnd": 99000,
+      "status": "PENDING",
+      "paymentLinkId": "abc123",
+      "checkoutUrl": "https://pay.payos.vn/web/abc123",
+      "qrCode": "00020101...",
+      "expiresAt": "2026-05-21T12:00:00.000Z"
+    }
+  }
+  ```
+  Prices: `PRO_MONTHLY` = 99000 VND / 30 days, `PRO_YEARLY` = 899000 VND / 365 days.
+- Errors:
+  - `400 VALIDATION_ERROR` — missing/invalid `Idempotency-Key`, bad body, or `PT_COURSE`
+  - `400 INVALID_PRODUCT` — defensive plan-lookup failure
+  - `503 PAYOS_UNAVAILABLE` — PayOS call failed (transaction is marked `failed`)
+  - `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/payment/webhook/payos
+
+- Auth: **none** — security is the PayOS signature
+- Request: body — the PayOS webhook envelope `{ code, desc, success, data, signature }`. The handler reads the raw request bytes (`req.rawBody`).
+- Behavior: verifies the signature, then on a `PAID` event marks the transaction `paid`, activates/extends the user's subscription, and flips `users.tier` to `PRO` — all in one DB transaction. Idempotent: a replay of an already-paid order is a no-op.
+- Response: **always `200`** with `{ "received": true, "action": "..." }` once processed — `action` is one of `paid`, `already_paid`, `unknown_order`, `amount_mismatch`. A bad signature also returns `200 { "received": true }` (so PayOS does not retry a forged call). This endpoint does **not** use the standard envelope.
+- Errors:
+  - `400 INVALID_JSON` — request body is not parseable JSON
+  - `500 WEBHOOK_PROCESSING_ERROR` — a genuine processing failure (returned so PayOS retries)
+
+---
+
+### GET /api/v1/payment/transactions
+
+- Auth: required
+- Request: query (unknown keys rejected by `.strict()`)
+  - `page` (optional): integer ≥1, default `1`
+  - `limit` (optional): integer 1–50, default `20`
+  - `status` (optional): enum `"PENDING" | "PAID" | "FAILED" | "EXPIRED" | "CANCELLED"`
+- Response: `200 OK` — paginated envelope
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "uuid",
+        "orderCode": 1779291633504042,
+        "productType": "PRO_MONTHLY",
+        "amountVnd": 99000,
+        "status": "PAID",
+        "paymentLinkId": "abc123",
+        "checkoutUrl": "https://pay.payos.vn/web/abc123",
+        "reference": "FT2026...",
+        "paidAt": "2026-05-21T12:05:00.000Z",
+        "expiresAt": "2026-05-21T12:00:00.000Z",
+        "createdAt": "2026-05-21T11:30:00.000Z"
+      }
+    ],
+    "pagination": { "page": 1, "limit": 20, "totalItems": 3, "totalPages": 1, "hasNext": false, "hasPrev": false }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/payment/subscription
+
+- Auth: required
+- Request: none
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "status": "ACTIVE",
+      "plan": "PRO_YEARLY",
+      "startedAt": "2026-01-10T00:00:00.000Z",
+      "expiresAt": "2027-01-10T00:00:00.000Z",
+      "autoRenew": false,
+      "daysRemaining": 234
+    }
+  }
+  ```
+  - No active subscription: `{ "status": "NONE", "plan": null, "startedAt": null, "expiresAt": null, "autoRenew": false, "daysRemaining": 0 }`.
+  - If the active row's `expiresAt` has passed, `status` is computed as `"EXPIRED"` and `daysRemaining` is `0` (the read endpoint never mutates the row).
+- Errors:
+  - `500 INTERNAL_ERROR`
+
+---
+
+## Workout — `/api/v1/workout`
+
+All endpoints require auth. The exercise library is read-only (seeded; no create/update/delete).
+
+### GET /api/v1/workout/exercises
+
+- Auth: required
+- Request: query (unknown keys rejected by `.strict()`)
+  - `muscleGroup` (optional): enum `CHEST | BACK | SHOULDERS | BICEPS | TRICEPS | LEGS | GLUTES | CORE | CARDIO | FULL_BODY`
+  - `equipment` (optional): enum `BODYWEIGHT | DUMBBELL | BARBELL | MACHINE | KETTLEBELL | BAND | CABLE | OTHER`
+  - `difficulty` (optional): enum `BEGINNER | INTERMEDIATE | ADVANCED`
+  - `search` (optional): string, trim, 1–100 chars — trigram + ILIKE match on Vietnamese/English names
+  - `page` (optional): integer ≥1, default `1`
+  - `limit` (optional): integer 1–50, default `20`
+- Response: `200 OK` — paginated envelope. Each item omits the detail-only fields (`instructions`, `commonMistakes`, `variations`).
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "ex_pushup_standard",
+        "nameVi": "Hít đất tiêu chuẩn",
+        "nameEn": "Standard Push-Up",
+        "muscleGroups": ["CHEST", "TRICEPS", "SHOULDERS"],
+        "equipment": "BODYWEIGHT",
+        "difficulty": "BEGINNER",
+        "caloriesPerMinute": 7.5,
+        "thumbnailUrl": null,
+        "animation2dUrl": null,
+        "youtubeVideoId": "IODxDxX7oi4"
+      }
+    ],
+    "pagination": { "page": 1, "limit": 20, "totalItems": 40, "totalPages": 2, "hasNext": true, "hasPrev": false }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/workout/exercises/:id
+
+- Auth: required
+- Request: path
+  - `id`: slug matching `^ex_[a-z0-9_]+$`
+- Response: `200 OK` — all list fields plus `instructions` (string[]), `commonMistakes` (string[]), `variations` (`{ id, name }[]`).
+- Errors:
+  - `400 VALIDATION_ERROR` — `id` is not a valid slug
+  - `404 EXERCISE_NOT_FOUND`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/workout/sessions
+
+Single-shot log of a completed workout — session + all set logs inserted atomically.
+
+- Auth: required
+- Request: body (unknown keys rejected by `.strict()`)
+  - `name` (optional): string, trim, 1–200 chars — auto-generated from the dominant muscle group if omitted
+  - `performedAt`: ISO 8601 datetime — must not be more than 5 minutes in the future
+  - `durationSec` (optional): integer 0–14400, default `0`
+  - `caloriesBurned` (optional): integer 0–5000 — overrides the server estimate
+  - `notes` (optional): string, max 2000 chars
+  - `logs`: array, 1–200 entries. Each entry:
+    - `exerciseId`: slug `^ex_[a-z0-9_]+$`
+    - `orderIndex`: integer 0–200
+    - `setNumber`: integer 1–50
+    - `reps` (integer 1–500) **xor** `durationSec` (integer 1–7200) — exactly one required
+    - `weightKg` (optional): number 0–500
+    - `restSec` (optional): integer 0–900, default `0`
+    - `rpe` (optional): integer 1–10
+    - `notes` (optional): string, max 500 chars
+- Behavior: server computes `estimatedCaloriesBurned` from the logs; `caloriesBurned` = the supplied override or the estimate.
+- Response: `201 Created`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "id": "uuid",
+      "name": "Buổi tập ngực",
+      "performedAt": "2026-05-21T07:30:00.000Z",
+      "durationSec": 2700,
+      "estimatedCaloriesBurned": 42,
+      "caloriesBurned": 42,
+      "totalExercises": 1,
+      "totalSets": 3,
+      "notes": null,
+      "createdAt": "2026-05-21T20:15:00.000Z"
+    }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR` — body fails Zod (incl. a log with both/neither `reps` and `durationSec`, or future `performedAt`)
+  - `404 EXERCISE_NOT_FOUND` — a log references an unknown `exerciseId`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/workout/sessions
+
+- Auth: required
+- Request: query (unknown keys rejected by `.strict()`)
+  - `from` (optional): ISO datetime — lower bound on `performedAt`
+  - `to` (optional): ISO datetime — upper bound on `performedAt`
+  - `page` (optional): integer ≥1, default `1`
+  - `limit` (optional): integer 1–50, default `20`
+- Response: `200 OK` — paginated envelope, newest first. Items carry `totalExercises` / `totalSets`, no logs.
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "uuid",
+        "name": "Buổi tập ngực",
+        "performedAt": "2026-05-21T07:30:00.000Z",
+        "durationSec": 2700,
+        "caloriesBurned": 42,
+        "totalExercises": 1,
+        "totalSets": 3
+      }
+    ],
+    "pagination": { "page": 1, "limit": 20, "totalItems": 3, "totalPages": 1, "hasNext": false, "hasPrev": false }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/workout/sessions/:id
+
+- Auth: required
+- Request: path
+  - `id`: UUID
+- Behavior: fetches only if the session belongs to the caller — a non-owner gets 404 (existence is not leaked).
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "id": "uuid",
+      "name": "Buổi tập ngực",
+      "performedAt": "2026-05-21T07:30:00.000Z",
+      "durationSec": 2700,
+      "estimatedCaloriesBurned": 42,
+      "caloriesBurned": 42,
+      "notes": null,
+      "logs": [
+        {
+          "id": "uuid",
+          "exerciseId": "ex_pushup_standard",
+          "exerciseNameSnapshot": "Hít đất tiêu chuẩn",
+          "orderIndex": 0,
+          "setNumber": 1,
+          "reps": 15,
+          "weightKg": null,
+          "durationSec": null,
+          "restSec": 60,
+          "rpe": 7,
+          "notes": null
+        }
+      ],
+      "createdAt": "2026-05-21T20:15:00.000Z",
+      "updatedAt": "2026-05-21T20:15:00.000Z"
+    }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR` — `id` is not a UUID
+  - `404 SESSION_NOT_FOUND`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/workout/sessions/:id
+
+- Auth: required
+- Request:
+  - path: `id` — UUID
+  - body (all optional, at least one required, unknown keys rejected): `name` (1–200 chars), `notes` (max 2000), `durationSec` (0–14400), `caloriesBurned` (0–5000)
+- Behavior: session-level fields only — set logs are not editable in v1. Non-owner gets 404.
+- Response: `200 OK` — the full session detail (same shape as `GET /sessions/:id`).
+- Errors:
+  - `400 VALIDATION_ERROR` — bad/empty body or non-UUID `id`
+  - `404 SESSION_NOT_FOUND`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### DELETE /api/v1/workout/sessions/:id
+
+- Auth: required
+- Request: path
+  - `id`: UUID
+- Behavior: hard-deletes the session; its `session_exercise_logs` rows are removed by `ON DELETE CASCADE`. Non-owner gets 404.
+- Response: `204 No Content`
+- Errors:
+  - `400 VALIDATION_ERROR` — `id` is not a UUID
+  - `404 SESSION_NOT_FOUND`
+  - `500 INTERNAL_ERROR`
+
+---
+
 ## Error code reference
 
 | Code | Source | Default status |
@@ -730,6 +1097,8 @@ All endpoints require auth.
 | INVALID_VERIFICATION_TOKEN | verify-email | 400 |
 | ALREADY_VERIFIED | resend-verification | 400 |
 | INVALID_RESET_TOKEN | reset-password | 400 |
+| INVALID_PRODUCT | payment checkout | 400 |
+| INVALID_JSON | payment webhook (unparseable body) | 400 |
 | UNAUTHORIZED | auth middleware / authed controllers | 401 |
 | INVALID_TOKEN | auth middleware (bad JWT or user gone) / refresh | 401 |
 | ACCOUNT_DELETED | auth middleware (`deleted_at` not null) | 401 |
@@ -737,9 +1106,14 @@ All endpoints require auth.
 | INVALID_CREDENTIALS | login | 401 |
 | INVALID_CURRENT_PASSWORD | change-password | 401 |
 | INVALID_PASSWORD | delete account | 401 |
-| USER_NOT_FOUND | auth/users services (defensive fallback after middleware) | 401 (auth) / 404 (users) |
+| INVALID_SIGNATURE | payment webhook (bad PayOS signature) — swallowed, returns 200 | 401 (internal) |
+| USER_NOT_FOUND | auth/users/dashboard services (defensive fallback after middleware) | 401 (auth) / 404 (users, dashboard) |
 | USER_METRICS_NOT_FOUND | users metrics | 404 |
 | FOOD_LOG_NOT_FOUND | nutrition update/delete | 404 |
 | FOOD_ITEM_NOT_FOUND | foods getById / nutrition Mode A | 404 |
+| EXERCISE_NOT_FOUND | workout exercise detail / session create | 404 |
+| SESSION_NOT_FOUND | workout session detail/update/delete | 404 |
 | EMAIL_EXISTS | register | 409 |
+| PAYOS_UNAVAILABLE | payment checkout (PayOS call failed) | 503 |
+| WEBHOOK_PROCESSING_ERROR | payment webhook (processing failed; PayOS retries) | 500 |
 | INTERNAL_ERROR | any (incl. middleware DB lookup, unknown errors) | 500 |

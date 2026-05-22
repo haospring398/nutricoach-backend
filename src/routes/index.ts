@@ -6,6 +6,8 @@ import foodsRouter from './foods.routes';
 import dashboardRouter from './dashboard.routes';
 import paymentRouter from './payment.routes';
 import workoutRouter from './workout.routes';
+import ptRouter from './pt.routes';
+import adminRouter from './admin.routes';
 
 const router: Router = Router();
 
@@ -16,8 +18,9 @@ router.use('/foods', foodsRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/payment', paymentRouter);
 router.use('/workout', workoutRouter);
+router.use('/pt', ptRouter);
+router.use('/admin', adminRouter);
 // router.use('/scan',      scanRouter);
-// router.use('/pt',        ptRouter);
 // router.use('/content',   contentRouter);
 
 export default router;

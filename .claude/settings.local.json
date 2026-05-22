@@ -21,7 +21,8 @@
       "Bash(awk -F, 'NR==3 {print NF\" fields\"; for\\(i=1;i<=NF;i++\\) printf \"%2d: %s\\\\n\", i, $i; exit}' /home/haodx/nutricoach-backend/data/seed/vn_food.csv)",
       "Bash(awk -F',' 'NR>1 {gsub\\(/^\"|\"$/,\"\",$4\\); print length\\($4\\)\"\\\\t\"$4}' /home/haodx/nutricoach-backend/data/seed/vn_food.csv /home/haodx/nutricoach-backend/data/seed/vn_dishes.csv)",
       "Bash(python3 -c ' *)",
-      "Bash(timeout 60 python3 /tmp/drive_drizzle.py)"
+      "Bash(timeout 60 python3 /tmp/drive_drizzle.py)",
+      "Bash(node -e \"const e=require\\('./data/seed/exercises.json'\\); console.log\\('count:', e.length\\); const ids=e.map\\(x=>x.id\\); console.log\\('unique ids:', new Set\\(ids\\).size\\); const allVar=e.flatMap\\(x=>\\(x.variations||[]\\).map\\(v=>v.id\\)\\); const missing=allVar.filter\\(v=>!ids.includes\\(v\\)\\); console.log\\('dangling variation ids:', missing.length?missing:'none'\\); const d={}; e.forEach\\(x=>x.muscleGroups.forEach\\(m=>d[m]=\\(d[m]||0\\)+1\\)\\); console.log\\('muscle dist:', d\\);\")"
     ]
   }
 }

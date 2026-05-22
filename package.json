@@ -11,6 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "seed:foods": "tsx src/db/seeds/foods.seed.ts",
+    "seed:exercises": "tsx src/db/seeds/exercises.seed.ts",
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push"
   },

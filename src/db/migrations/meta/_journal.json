@@ -71,6 +71,13 @@
       "when": 1779464644989,
       "tag": "0009_last_zarda",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1779500000000,
+      "tag": "0010_courses_enrollments",
+      "breakpoints": true
     }
   ]
 }

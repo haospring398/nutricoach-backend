@@ -71,6 +71,7 @@ export const createCheckoutHandler = async (
       {
         userId,
         productType: body.productType,
+        productId: body.productId,
         returnUrl: body.returnUrl,
         cancelUrl: body.cancelUrl,
       },

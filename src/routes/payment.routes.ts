@@ -6,6 +6,7 @@ import {
   listTransactionsHandler,
   payosWebhookHandler,
 } from '../controllers/payment.controller';
+import { listPurchasedCoursesHandler } from '../controllers/course.controller';
 
 const router: Router = Router();
 
@@ -19,5 +20,6 @@ router.use(authenticate);
 router.post('/checkout', createCheckoutHandler);
 router.get('/transactions', listTransactionsHandler);
 router.get('/subscription', getSubscriptionHandler);
+router.get('/courses', listPurchasedCoursesHandler);
 
 export default router;

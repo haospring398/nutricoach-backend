@@ -5,5 +5,6 @@ export * from './food-log.model';
 export * from './payment.model';
 export * from './workout.model';
 export * from './pt.model';
+export * from './course.model';
 // export * from './nutrition.model';
 // export * from './content.model';

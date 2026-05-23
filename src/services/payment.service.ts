@@ -7,9 +7,11 @@ import {
   transactions,
   type Transaction,
 } from '../models/payment.model';
+import { courses, enrollments } from '../models/course.model';
 import { ApiError } from '../lib/api-error';
 import { payos } from './payment/payos.client';
 import { PRO_PLANS, type ProPlan } from './payment/plans';
+import { resolvePtCoursePrice } from './course.service';
 
 export class PaymentError extends ApiError {}
 
@@ -107,10 +109,55 @@ const mapTransaction = (row: Transaction): TransactionItem => ({
 
 export interface CreateCheckoutInput {
   userId: string;
-  productType: 'PRO_MONTHLY' | 'PRO_YEARLY';
+  productType: ApiProductType;
+  productId?: string;
   returnUrl?: string;
   cancelUrl?: string;
 }
+
+interface ResolvedProduct {
+  dbProductType: ProductTypeDb;
+  productRefId: string | null;
+  priceVnd: number;
+  label: string;
+  // PayOS description is ASCII and length-capped.
+  description: string;
+}
+
+const resolveProduct = async (
+  userId: string,
+  productType: ApiProductType,
+  productId: string | undefined,
+): Promise<ResolvedProduct> => {
+  if (productType === 'PRO_MONTHLY' || productType === 'PRO_YEARLY') {
+    const dbProductType = productType.toLowerCase() as ProPlan;
+    const plan = PRO_PLANS[dbProductType];
+    return {
+      dbProductType,
+      productRefId: null,
+      priceVnd: plan.priceVnd,
+      label: plan.label,
+      description: 'NutriCoach PRO',
+    };
+  }
+
+  // PT_COURSE — productId is enforced by the validation layer.
+  if (!productId) {
+    throw new PaymentError(
+      400,
+      'VALIDATION_ERROR',
+      'productId is required for PT_COURSE',
+    );
+  }
+  const { priceVnd, label } = await resolvePtCoursePrice(userId, productId);
+  return {
+    dbProductType: 'pt_course',
+    productRefId: productId,
+    priceVnd,
+    label,
+    description: 'NutriCoach PT Course',
+  };
+};
 
 export const createCheckout = async (
   input: CreateCheckoutInput,
@@ -123,11 +170,11 @@ export const createCheckout = async (
     return { data: cached, replayed: true };
   }
 
-  const dbProductType = input.productType.toLowerCase() as ProPlan;
-  const plan = PRO_PLANS[dbProductType];
-  if (!plan) {
-    throw new PaymentError(400, 'INVALID_PRODUCT', 'Unknown product type');
-  }
+  const resolved = await resolveProduct(
+    input.userId,
+    input.productType,
+    input.productId,
+  );
 
   const orderCode = generateOrderCode();
 
@@ -136,8 +183,9 @@ export const createCheckout = async (
     .values({
       userId: input.userId,
       orderCode,
-      productType: dbProductType,
-      amountVnd: plan.priceVnd,
+      productType: resolved.dbProductType,
+      productRefId: resolved.productRefId,
+      amountVnd: resolved.priceVnd,
       status: 'pending',
     })
     .returning();
@@ -157,12 +205,14 @@ export const createCheckout = async (
   try {
     link = await payos.createPaymentLink({
       orderCode,
-      amount: plan.priceVnd,
+      amount: resolved.priceVnd,
       // PayOS caps description length — keep it short and ASCII.
-      description: 'NutriCoach PRO',
+      description: resolved.description,
       returnUrl,
       cancelUrl,
-      items: [{ name: plan.label, quantity: 1, price: plan.priceVnd }],
+      items: [
+        { name: resolved.label, quantity: 1, price: resolved.priceVnd },
+      ],
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : 'PayOS error';
@@ -200,7 +250,7 @@ export const createCheckout = async (
     transactionId: txn.id,
     orderCode,
     productType: input.productType,
-    amountVnd: plan.priceVnd,
+    amountVnd: resolved.priceVnd,
     status: 'PENDING',
     paymentLinkId: link.paymentLinkId,
     checkoutUrl: link.checkoutUrl,
@@ -283,13 +333,8 @@ export const handlePayosWebhook = async (
       txn.productType === 'pro_yearly'
     ) {
       await activateProSubscription(tx, txn);
-    } else {
-      // pt_course — reserved for the future PT module. v1 no-ops.
-      console.info(
-        '[payment] PAID webhook for pt_course txn',
-        txn.id,
-        '— PT module not implemented, skipping enrollment',
-      );
+    } else if (txn.productType === 'pt_course') {
+      await activateCourseEnrollment(tx, txn);
     }
   });
 
@@ -356,6 +401,63 @@ const activateProSubscription = async (
     .update(users)
     .set({ tier: 'PRO', updatedAt: now })
     .where(eq(users.id, txn.userId));
+};
+
+// ── 3b. activateCourseEnrollment (runs inside a DB transaction) ──
+
+const activateCourseEnrollment = async (
+  tx: DbTx,
+  txn: Transaction,
+): Promise<void> => {
+  if (!txn.productRefId) {
+    console.error(
+      '[payment] pt_course txn without productRefId — manual review required',
+      txn.id,
+    );
+    return;
+  }
+
+  // Honor the purchase even if status changed between checkout and pay —
+  // user paid in good faith. Log loudly so an operator can intervene.
+  const [course] = await tx
+    .select()
+    .from(courses)
+    .where(eq(courses.id, txn.productRefId))
+    .limit(1);
+
+  if (!course) {
+    console.error(
+      '[payment] course not found for paid pt_course txn — manual review required',
+      { txnId: txn.id, productRefId: txn.productRefId },
+    );
+    return;
+  }
+
+  if (course.status === 'archived') {
+    console.warn(
+      '[payment] course archived between checkout and pay; creating enrollment anyway',
+      { txnId: txn.id, courseId: course.id },
+    );
+  }
+
+  // Idempotency — the enrollments_transaction_uq index would also catch a
+  // double-insert, but skipping the round-trip avoids a noisy error log.
+  const [existing] = await tx
+    .select({ id: enrollments.id })
+    .from(enrollments)
+    .where(eq(enrollments.transactionId, txn.id))
+    .limit(1);
+
+  if (existing) return;
+
+  await tx.insert(enrollments).values({
+    userId: txn.userId,
+    courseId: course.id,
+    ptId: course.ptId,
+    transactionId: txn.id,
+    status: 'active',
+    enrolledAt: new Date(),
+  });
 };
 
 // ── 4. listTransactions ───────────────────────────────────────

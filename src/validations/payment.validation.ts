@@ -1,14 +1,23 @@
 import { z } from 'zod';
 
-// PT_COURSE is deliberately rejected in v1 — the PT/courses module isn't built.
 export const checkoutBodySchema = z
   .object({
-    productType: z.enum(['PRO_MONTHLY', 'PRO_YEARLY']),
-    productId: z.string().optional(), // ignored for PRO plans; reserved for pt_course
+    productType: z.enum(['PRO_MONTHLY', 'PRO_YEARLY', 'PT_COURSE']),
+    // Required (UUID) when productType=PT_COURSE; ignored otherwise.
+    productId: z.string().uuid().optional(),
     returnUrl: z.string().url().optional(),
     cancelUrl: z.string().url().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.productType === 'PT_COURSE' && !data.productId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['productId'],
+        message: 'productId is required for PT_COURSE',
+      });
+    }
+  });
 
 export const idempotencyKeySchema = z
   .string({ required_error: 'Idempotency-Key header is required' })

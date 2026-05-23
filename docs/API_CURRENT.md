@@ -24,8 +24,8 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented: **Auth (9), Users (6), Nutrition (5), Foods (3), Dashboard (1), Payment (4), Workout (7)**
-- Planned: Scan, PT
+- Implemented: **Auth (9), Users (7), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin (7), Content (2)**
+- Planned: Scan, Content articles (only PT-course discovery is wired)
 
 ---
 
@@ -419,6 +419,43 @@ All endpoints require auth.
 
 ---
 
+### GET /api/v1/users/me/pt-assignments
+
+Student-facing feed of meal-plan and exercise assignments from PT(s) the user is enrolled with. Superseded meal-plan versions are filtered out; only the current active row per type is returned.
+
+- Auth: required
+- Request: query
+  - `type` (optional): enum `"MEAL_PLAN" | "EXERCISE_ADDITION"`
+  - `page` (optional): integer ≥1, default `1`
+  - `limit` (optional): integer 1–50, default `20`
+- Response: `200 OK` — paginated envelope
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "uuid",
+        "type": "MEAL_PLAN",
+        "payload": { "days": [ /* PT-submitted shape */ ] },
+        "scheduledFor": null,
+        "note": "Giảm carbs sau 18h",
+        "createdAt": "2026-05-13T14:00:00.000Z",
+        "from": {
+          "ptId": "uuid",
+          "fullName": "Trần Văn B",
+          "avatarUrl": null
+        }
+      }
+    ],
+    "pagination": { "page": 1, "limit": 20, "totalItems": 3, "totalPages": 1, "hasNext": false, "hasPrev": false }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR`
+  - `500 INTERNAL_ERROR`
+
+---
+
 ## Nutrition — `/api/v1/nutrition`
 
 All endpoints require auth.
@@ -773,7 +810,7 @@ All endpoints require auth.
 
 ## Payment — `/api/v1/payment`
 
-PRO subscriptions via PayOS. PT-course payments are not in v1.
+PRO subscriptions and PT-course purchases via PayOS.
 
 ### POST /api/v1/payment/checkout
 
@@ -781,10 +818,11 @@ PRO subscriptions via PayOS. PT-course payments are not in v1.
 - Request:
   - header `Idempotency-Key`: UUID (required) — a repeated key returns the first call's cached response
   - body (unknown keys rejected by `.strict()`)
-    - `productType`: enum `"PRO_MONTHLY" | "PRO_YEARLY"` (`PT_COURSE` is rejected in v1)
+    - `productType`: enum `"PRO_MONTHLY" | "PRO_YEARLY" | "PT_COURSE"`
+    - `productId` (required iff `productType === "PT_COURSE"`): UUID of a published course
     - `returnUrl` (optional): valid URL — defaults to `nutricoach://payment/success`
     - `cancelUrl` (optional): valid URL — defaults to `nutricoach://payment/cancel`
-- Behavior: creates a `pending` transaction and a PayOS payment link. The response (including `qrCode`) is cached in Redis under the idempotency key for 24h.
+- Behavior: creates a `pending` transaction and a PayOS payment link. For `PT_COURSE`, the price is looked up from the `courses` table (must be `PUBLISHED`) and the user must not already hold an active enrollment for that course. The response (including `qrCode`) is cached in Redis under the idempotency key for 24h.
 - Response: **`201 Created`** on the first call, **`200 OK`** on an idempotent replay (identical body)
   ```json
   {
@@ -792,8 +830,8 @@ PRO subscriptions via PayOS. PT-course payments are not in v1.
     "data": {
       "transactionId": "uuid",
       "orderCode": 1779291633504042,
-      "productType": "PRO_MONTHLY",
-      "amountVnd": 99000,
+      "productType": "PT_COURSE",
+      "amountVnd": 1490000,
       "status": "PENDING",
       "paymentLinkId": "abc123",
       "checkoutUrl": "https://pay.payos.vn/web/abc123",
@@ -802,10 +840,11 @@ PRO subscriptions via PayOS. PT-course payments are not in v1.
     }
   }
   ```
-  Prices: `PRO_MONTHLY` = 99000 VND / 30 days, `PRO_YEARLY` = 899000 VND / 365 days.
+  PRO prices: `PRO_MONTHLY` = 99000 VND / 30 days, `PRO_YEARLY` = 899000 VND / 365 days. PT course prices come from `courses.price_vnd` (50,000–50,000,000 VND, multiples of 1,000).
 - Errors:
-  - `400 VALIDATION_ERROR` — missing/invalid `Idempotency-Key`, bad body, or `PT_COURSE`
-  - `400 INVALID_PRODUCT` — defensive plan-lookup failure
+  - `400 VALIDATION_ERROR` — missing/invalid `Idempotency-Key`, bad body, or missing `productId` for `PT_COURSE`
+  - `404 COURSE_NOT_FOUND` — course doesn't exist or isn't published
+  - `409 ALREADY_ENROLLED` — user already has an active enrollment for this course
   - `503 PAYOS_UNAVAILABLE` — PayOS call failed (transaction is marked `failed`)
   - `500 INTERNAL_ERROR`
 
@@ -815,7 +854,11 @@ PRO subscriptions via PayOS. PT-course payments are not in v1.
 
 - Auth: **none** — security is the PayOS signature
 - Request: body — the PayOS webhook envelope `{ code, desc, success, data, signature }`. The handler reads the raw request bytes (`req.rawBody`).
-- Behavior: verifies the signature, then on a `PAID` event marks the transaction `paid`, activates/extends the user's subscription, and flips `users.tier` to `PRO` — all in one DB transaction. Idempotent: a replay of an already-paid order is a no-op.
+- Behavior: verifies the signature, then on a `PAID` event marks the transaction `paid` and, in the same DB transaction, branches by `productType`:
+  - `pro_monthly` / `pro_yearly` — activates/extends the user's subscription and flips `users.tier` to `PRO`.
+  - `pt_course` — inserts an `enrollments` row (idempotent on `transaction_id`) and a `pt_earnings` row capturing the PT's commission snapshot (`available_at = paid_at + 7 days`, `status = 'on_hold'`).
+
+  Idempotent: a replay of an already-paid order is a no-op.
 - Response: **always `200`** with `{ "received": true, "action": "..." }` once processed — `action` is one of `paid`, `already_paid`, `unknown_order`, `amount_mismatch`. A bad signature also returns `200 { "received": true }` (so PayOS does not retry a forged call). This endpoint does **not** use the standard envelope.
 - Errors:
   - `400 INVALID_JSON` — request body is not parseable JSON
@@ -879,6 +922,41 @@ PRO subscriptions via PayOS. PT-course payments are not in v1.
   - No active subscription: `{ "status": "NONE", "plan": null, "startedAt": null, "expiresAt": null, "autoRenew": false, "daysRemaining": 0 }`.
   - If the active row's `expiresAt` has passed, `status` is computed as `"EXPIRED"` and `daysRemaining` is `0` (the read endpoint never mutates the row).
 - Errors:
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/payment/courses
+
+Student's purchased courses. Lists enrollments where `status != 'refunded'`.
+
+- Auth: required
+- Request: query
+  - `page` (optional): integer ≥1, default `1`
+  - `limit` (optional): integer 1–50, default `20`
+- Response: `200 OK` — paginated envelope
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "enrollmentId": "uuid",
+        "courseId": "uuid",
+        "title": "Giảm 5kg trong 30 ngày",
+        "thumbnailUrl": null,
+        "ptId": "uuid",
+        "ptFullName": "Trần Văn B",
+        "status": "ACTIVE",
+        "enrolledAt": "2026-04-01T00:00:00.000Z",
+        "totalLessons": 12,
+        "durationDays": 30
+      }
+    ],
+    "pagination": { "page": 1, "limit": 20, "totalItems": 1, "totalPages": 1, "hasNext": false, "hasPrev": false }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR`
   - `500 INTERNAL_ERROR`
 
 ---
@@ -1089,6 +1167,420 @@ Single-shot log of a completed workout — session + all set logs inserted atomi
 
 ---
 
+## PT — `/api/v1/pt`
+
+Personal-trainer marketplace. All endpoints require auth. The PT lifecycle is **verification → profile → courses → students → earnings/withdrawals**.
+
+Routes labelled "PT role" require `requireRole('pt')` — only users with `users.role = 'pt'` (set when an admin approves a verification) pass. Routes under `/students/:studentId/*` additionally require an **active enrollment** between the calling PT and the target student; any failure mode (missing enrollment, refunded enrollment, invalid UUID, unknown student) returns `404 STUDENT_NOT_FOUND` to avoid leaking student existence.
+
+### POST /api/v1/pt/verification
+
+Submit an application to become a verified PT. Any authenticated user may submit. At most one `pending_review` application per user at a time.
+
+- Auth: required
+- Request: body (`.strict()`)
+  - `fullName`: string, 2–100 chars
+  - `dateOfBirth`: ISO date string (age must be 18–80)
+  - `citizenIdNumber`: 9–12 digits
+  - `citizenIdFrontKey`, `citizenIdBackKey`: opaque file-key strings, 1–256 chars
+  - `certificates`: array, 1–10 items — each `{ name, issuedBy, issuedAt: "YYYY-MM-DD", fileKey }`
+  - `specialties`: array, 1–5 enums of `WEIGHT_LOSS | MUSCLE_GAIN | STRENGTH_TRAINING | CARDIO | HIIT | YOGA | PILATES | REHABILITATION | NUTRITION_COACHING | POSTPARTUM | SENIOR_FITNESS | SPORTS_PERFORMANCE`
+  - `yearsOfExperience`: integer 0–60
+  - `bio`: string, 50–2000 chars
+  - `bankAccount`: `{ bankCode (2–16 A-Z0-9), accountNumber (6–20 digits), accountHolder (2–100 chars) }`
+- Response: `201 Created`
+  ```json
+  { "success": true, "data": { "verificationId": "uuid", "status": "PENDING_REVIEW", "submittedAt": "...", "estimatedReviewHours": 48 } }
+  ```
+- Errors: `400 VALIDATION_ERROR`, `404 USER_NOT_FOUND`, `409 ALREADY_PT`, `409 VERIFICATION_PENDING`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/pt/verification/status
+
+- Auth: required
+- Response: `200 OK` — `{ status: "NONE" }` if no application, otherwise the latest submission's `{ status, submittedAt, reviewedAt, rejectReason, requireResubmit }`.
+- Errors: `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/pt/me
+
+- Auth: required (PT role)
+- Response: `200 OK` — PT profile (bio, specialties, yearsOfExperience, bankAccount snapshot, `commissionPercent`, `createdAt`)
+- Errors: `403 FORBIDDEN`, `404 PT_PROFILE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/pt/me
+
+- Auth: required (PT role)
+- Request: body (`.strict()`) — at least one of `bio`, `specialties`, `yearsOfExperience`, `bankAccount`. `commissionPercent` is intentionally not editable here (admin-only in a later phase).
+- Response: `200 OK` — same shape as `GET /pt/me`
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 PT_PROFILE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/pt/courses
+
+Create a course (status defaults to `DRAFT`). Curriculum (modules + lessons) is nested in the body. `displayOrder` must be 0-based and contiguous within each scope.
+
+- Auth: required (PT role)
+- Request: body
+  - `title`: string, 3–200 chars
+  - `description`: string, 20–5000 chars
+  - `thumbnailUrl` (optional): string ≤512 chars
+  - `priceVnd`: integer 50,000–50,000,000, multiple of 1,000
+  - `durationDays`: integer 1–365
+  - `tags` (optional): array of ≤10 strings (each ≤40 chars)
+  - `modules`: array 1–20 items — each `{ title (3–200), displayOrder (0..N-1), lessons }`
+    - `lessons`: array 1–50 items — each `{ title (3–200), youtubeVideoId? (11-char YT id, nullable until publish), durationMin (0–600), displayOrder (0..N-1) }`
+- Response: `201 Created` — course summary
+  ```json
+  { "success": true, "data": { "id": "uuid", "title": "...", "status": "DRAFT", "priceVnd": 1490000, "durationDays": 30, "tags": ["WEIGHT_LOSS"], "totalLessons": 12, "thumbnailUrl": null, "publishedAt": null, "createdAt": "..." } }
+  ```
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/pt/courses
+
+Own courses (any status).
+
+- Auth: required (PT role)
+- Request: query — `status` (optional `DRAFT|PUBLISHED|ARCHIVED`), `page`, `limit`
+- Response: `200 OK` — paginated array of course summaries
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/pt/courses/:id
+
+Own course detail with full curriculum. Non-owner gets 404 (don't leak).
+
+- Auth: required (PT role)
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "id": "uuid", "title": "...", "description": "...", "status": "DRAFT",
+      "priceVnd": 1490000, "durationDays": 30, "tags": [], "thumbnailUrl": null,
+      "totalLessons": 12, "publishedAt": null, "archivedAt": null,
+      "modules": [
+        { "id": "uuid", "title": "Tuần 1", "displayOrder": 0,
+          "lessons": [ { "id": "uuid", "title": "Day 1", "youtubeVideoId": "abc123", "durationMin": 25, "displayOrder": 0 } ] }
+      ],
+      "createdAt": "...", "updatedAt": "..."
+    }
+  }
+  ```
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 COURSE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/pt/courses/:id
+
+Update metadata. Once any non-refunded enrollment exists, **`priceVnd` and `durationDays` are locked**; title/description/thumbnail/tags remain editable.
+
+- Auth: required (PT role)
+- Request: body — at least one of `title | description | thumbnailUrl | priceVnd | durationDays | tags` (same rules as POST)
+- Response: `200 OK` — course summary
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 COURSE_NOT_FOUND`, `409 COURSE_LOCKED_BY_ENROLLMENTS`, `500 INTERNAL_ERROR`
+
+---
+
+### PUT /api/v1/pt/courses/:id/curriculum
+
+Atomically replace all modules + lessons. **Forbidden once any non-refunded enrollment exists** (bait-and-switch protection).
+
+- Auth: required (PT role)
+- Request: body — `{ modules: [...] }` (same nested shape as POST)
+- Response: `200 OK` — full course detail (same shape as `GET /pt/courses/:id`)
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 COURSE_NOT_FOUND`, `409 COURSE_LOCKED_BY_ENROLLMENTS`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/pt/courses/:id/publish
+
+Transition `DRAFT → PUBLISHED`. Requires at least one lesson with a non-null `youtubeVideoId`.
+
+- Auth: required (PT role)
+- Response: `200 OK` — course summary with `status: "PUBLISHED"` and `publishedAt` set
+- Errors:
+  - `404 COURSE_NOT_FOUND`
+  - `409 INVALID_COURSE_STATUS_TRANSITION` — course is not in `DRAFT`
+  - `422 CURRICULUM_INCOMPLETE` — has lessons missing `youtubeVideoId`; error includes a `details` array of `{ lessonId, lessonTitle, moduleTitle }`
+
+---
+
+### POST /api/v1/pt/courses/:id/archive
+
+Transition `DRAFT|PUBLISHED → ARCHIVED`. Existing enrollments retain access.
+
+- Auth: required (PT role)
+- Response: `200 OK` — course summary with `status: "ARCHIVED"` and `archivedAt` set
+- Errors: `404 COURSE_NOT_FOUND`, `409 INVALID_COURSE_STATUS_TRANSITION` (already archived)
+
+---
+
+### GET /api/v1/pt/students
+
+Students enrolled in any of the PT's courses. By default refunded enrollments are excluded.
+
+- Auth: required (PT role)
+- Request: query
+  - `search` (optional): ILIKE match against `users.full_name`
+  - `status` (optional): enum `"ACTIVE" | "COMPLETED" | "REFUNDED"` (explicit `REFUNDED` is honored)
+  - `page`, `limit`
+- Response: `200 OK` — paginated
+  ```json
+  {
+    "studentId": "uuid", "fullName": "...", "avatarUrl": null,
+    "enrollmentId": "uuid", "courseId": "uuid", "courseTitle": "...",
+    "status": "ACTIVE", "enrolledAt": "...",
+    "daysCompletedPercent": 42,
+    "lastActiveAt": "2026-05-13T08:00:00.000Z"
+  }
+  ```
+  `daysCompletedPercent = min(100, round(daysSinceEnrollment / course.durationDays × 100))`. `lastActiveAt` is `GREATEST(MAX(food_logs.consumedAt), MAX(workout_sessions.performedAt))` for the student, or `null` if neither.
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/pt/students/:studentId
+
+Coaching dashboard for one student. PII whitelist applies — PT sees `fullName`, `avatarUrl`, computed `age`, `gender`, `heightCm`, `weightKg`, `targetWeightKg`, `goal`, `activityLevel`, stored `metrics` (BMR/TDEE/daily targets), last-7-day summaries, last 5 food_logs, last 5 workout_sessions, current active meal plan (if any), and last 30 days of exercise assignments. Email, phone, password, DOB, and payment history are never exposed.
+
+- Auth: required (PT role + active enrollment)
+- Response: `200 OK` — see field shape below
+  ```json
+  {
+    "student": { "id": "uuid", "fullName": "...", "avatarUrl": null, "age": 28, "gender": "MALE", "heightCm": 175, "weightKg": 72.5, "targetWeightKg": 68, "goal": "LOSE_WEIGHT", "activityLevel": "MODERATE" },
+    "metrics": { "bmr": 1693, "tdee": 2624, "dailyCalorieTarget": 2124, "macros": { "proteinG": 159, "carbsG": 212, "fatG": 71 } },
+    "enrollment": { "id": "uuid", "courseId": "uuid", "courseTitle": "...", "enrolledAt": "...", "daysSinceEnrollment": 13, "daysCompletedPercent": 42, "courseDurationDays": 30, "status": "ACTIVE" },
+    "last7Days": {
+      "nutrition": { "loggedDaysCount": 5, "avgDailyCalories": 1980, "avgDailyMacros": { "proteinG": 122, "carbsG": 198, "fatG": 65 }, "adherencePercent": 71 },
+      "workout":   { "sessionsCount": 3, "totalDurationSec": 8100, "totalCaloriesBurned": 1240 }
+    },
+    "recentFoodLogs":       [ { "id": "uuid", "consumedAt": "...", "mealType": "LUNCH", "foodName": "...", "calories": 520 } ],
+    "recentWorkoutSessions":[ { "id": "uuid", "name": "...", "performedAt": "...", "durationSec": 2700, "caloriesBurned": 287 } ],
+    "currentMealPlan": null,
+    "recentExerciseAssignments": [],
+    "lastActiveAt": "2026-05-13T08:00:00.000Z"
+  }
+  ```
+- Errors: `403 FORBIDDEN`, `404 STUDENT_NOT_FOUND` (invalid UUID or no active enrollment with this PT), `500 INTERNAL_ERROR`
+
+---
+
+### PUT /api/v1/pt/students/:studentId/meal-plan
+
+Assigns a meal plan. Atomically supersedes any existing active meal plan for this enrollment (old row's `superseded_by` points to the new row; only one active row per enrollment, enforced by a partial unique index).
+
+- Auth: required (PT role + active enrollment)
+- Request: body
+  - `days`: array 1–31 items — each `{ dayIndex (0..364, unique across the request), meals: array 1–8 items }`
+    - `meals` item: `{ mealType: "BREAKFAST"|"LUNCH"|"DINNER"|"SNACK", name (2–200), calories (0–5000), macros: { proteinG (0–500), carbsG (0–2000), fatG (0–500) }, notes? }`
+  - `note` (optional): string ≤2000 chars
+- Response: `201 Created` — assignment view + a response-only `supersededPreviousAssignmentId` (null if first plan, UUID of the replaced row otherwise)
+  ```json
+  { "success": true, "data": { "id": "uuid", "type": "MEAL_PLAN", "studentId": "uuid", "enrollmentId": "uuid", "payload": { "days": [...] }, "scheduledFor": null, "note": "...", "createdAt": "...", "supersededPreviousAssignmentId": null } }
+  ```
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 STUDENT_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/pt/students/:studentId/exercises
+
+Assigns an exercise. Accumulates (no supersession). Exactly one of weight-training (`sets` + `reps`, `weightKg` optional) or cardio (`durationSec`) is required.
+
+- Auth: required (PT role + active enrollment)
+- Request: body
+  - `exerciseId`: string matching `^ex_[a-z0-9_]+$` — must exist in the seeded `exercises` catalog
+  - `scheduledDate` (optional): ISO date
+  - `sets` (1–20), `reps` (1–500), `weightKg` (0–500), `durationSec` (1–7200), `restSec` (0–900) — XOR enforced (weight-training vs cardio)
+  - `note` (optional): ≤1000 chars
+- Response: `201 Created` — assignment view (type `EXERCISE_ADDITION`, payload contains the relevant fields)
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 STUDENT_NOT_FOUND`, `404 EXERCISE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/pt/earnings
+
+PT's earnings report. All amounts in VND (integer).
+
+- Auth: required (PT role)
+- Request: query
+  - `from`, `to` (optional): ISO dates — filter on `pt_earnings.created_at`
+  - `granularity` (optional): always `"month"` in v1 (day/week deferred)
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "totalRevenueVnd": 45200000,
+      "platformFeeVnd": 4520000,
+      "netEarningsVnd": 40680000,
+      "availableBalanceVnd": 28500000,
+      "pendingWithdrawalVnd": 5000000,
+      "withdrawnTotalVnd": 7180000,
+      "breakdown": [
+        { "period": "2026-04", "grossVnd": 12000000, "feeVnd": 1200000, "netVnd": 10800000, "transactionsCount": 8 }
+      ]
+    }
+  }
+  ```
+  `availableBalanceVnd` = `SUM(net_vnd WHERE status NOT IN ('refunded','paid_out') AND now() >= available_at) − SUM(amount_vnd WHERE withdrawal.status IN ('pending_approval','completed'))`. The 7-day hold transition is computed on read (no cron). Rejected withdrawals automatically release reserved balance.
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/pt/withdrawals
+
+Request a withdrawal. Bank account is snapshotted from `pt_profiles` at request time (later `PATCH /pt/me` does NOT change in-flight requests).
+
+- Auth: required (PT role)
+- Request:
+  - header `Idempotency-Key`: string 1–64 chars (required) — repeated key returns the first call's cached response (Redis 24h TTL; backed by DB `UNIQUE (pt_id, idempotency_key)`)
+  - body
+    - `amountVnd`: integer 200,000–50,000,000, multiple of 1,000, ≤ available balance
+    - `note` (optional): ≤500 chars
+- Response: **`201 Created`** on the first call, **`200 OK`** on idempotent replay
+  ```json
+  {
+    "success": true,
+    "data": {
+      "id": "uuid", "amountVnd": 5000000, "status": "PENDING_APPROVAL",
+      "bankCode": "VCB", "bankAccountNumber": "0123456789", "bankAccountHolder": "TRAN VAN B",
+      "note": "Rút thu nhập tháng 4",
+      "requestedAt": "...", "reviewedAt": null,
+      "transferReference": null, "rejectionReason": null
+    }
+  }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR` — missing/invalid header or body
+  - `403 FORBIDDEN`
+  - `404 PT_PROFILE_NOT_FOUND`
+  - `409 INSUFFICIENT_BALANCE` — `amountVnd > availableBalanceVnd`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/pt/withdrawals
+
+PT's own withdrawal history.
+
+- Auth: required (PT role)
+- Request: query — `status` (optional `PENDING_APPROVAL|COMPLETED|REJECTED`), `page`, `limit`
+- Response: `200 OK` — paginated; item shape matches the `POST /pt/withdrawals` response data.
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+## Admin — `/api/v1/admin`
+
+All endpoints require `users.role = 'admin'` (enforced router-wide). Non-admin authenticated users get `403 FORBIDDEN`.
+
+### GET /api/v1/admin/pt-verifications
+
+- Request: query — `status` (optional `PENDING_REVIEW|APPROVED|REJECTED`), `page`, `limit`
+- Response: `200 OK` — paginated list with `{ id, userId, applicantEmail, applicantName, fullName, status, specialties, yearsOfExperience, submittedAt, reviewedAt }`
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/pt-verifications/:id
+
+- Response: `200 OK` — full submission (incl. citizen ID file keys, certificates, bank account)
+- Errors: `404 VERIFICATION_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/pt-verifications/:id/approve
+
+In one DB transaction: marks the verification `approved`, snapshots the operating data into a new `pt_profiles` row (commission default 10%), and flips `users.role` to `'pt'`. Sends an approval email (fire-and-forget).
+
+- Request: body — `note?` (≤1000 chars)
+- Response: `200 OK` — `{ verificationId, status: "APPROVED", userId, ptProfileId, reviewedAt }`
+- Errors: `404 VERIFICATION_NOT_FOUND`, `409 VERIFICATION_ALREADY_REVIEWED`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/pt-verifications/:id/reject
+
+- Request: body — `reason` (10–1000 chars), `requireResubmit` (boolean, default `true`)
+- Response: `200 OK` — `{ verificationId, status: "REJECTED", reviewedAt, rejectReason, requireResubmit }`
+- Errors: `400 VALIDATION_ERROR`, `404 VERIFICATION_NOT_FOUND`, `409 VERIFICATION_ALREADY_REVIEWED`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/withdrawals
+
+- Request: query — `status` (optional `PENDING_APPROVAL|COMPLETED|REJECTED`), `ptId` (optional UUID), `page`, `limit`
+- Response: `200 OK` — paginated; each row is a withdrawal **plus** `ptId` and `ptFullName` (joined from `users`)
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/withdrawals/:id/approve
+
+Marks the withdrawal `completed` and records the bank transfer reference. There is no automated bank transfer in v1 — admin completes the transfer in their banking app, then calls this endpoint with the reference. Sends a Vietnamese approval email (fire-and-forget). Balance reflects the change immediately (completed withdrawals continue to count against `availableBalanceVnd`).
+
+- Request: body — `transferReference` (3–64 chars), `note?` (≤500 chars)
+- Response: `200 OK` — withdrawal view with `status: "COMPLETED"`, `transferReference`, `reviewedAt` set
+- Errors: `400 VALIDATION_ERROR`, `404 WITHDRAWAL_NOT_FOUND`, `409 WITHDRAWAL_ALREADY_REVIEWED`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/withdrawals/:id/reject
+
+Marks the withdrawal `rejected` with a reason. The reserved balance is released automatically (rejected rows are excluded from the balance subquery). Sends a Vietnamese rejection email (fire-and-forget).
+
+- Request: body — `reason` (10–500 chars)
+- Response: `200 OK` — withdrawal view with `status: "REJECTED"`, `rejectionReason`, `reviewedAt` set
+- Errors: `400 VALIDATION_ERROR`, `404 WITHDRAWAL_NOT_FOUND`, `409 WITHDRAWAL_ALREADY_REVIEWED`, `500 INTERNAL_ERROR`
+
+---
+
+## Content — `/api/v1/content`
+
+Public-ish (any authenticated user) discovery of published PT courses. The `/content` router is reserved for future articles work; only PT-course endpoints are wired today.
+
+### GET /api/v1/content/discover/pt-courses
+
+- Auth: required
+- Request: query
+  - `search` (optional, 1–100 chars): pg_trgm similarity + `ILIKE` against `courses.title`
+  - `tag` (optional, ≤40 chars): exact match against `courses.tags[]`
+  - `ptId` (optional UUID)
+  - `maxPriceVnd` (optional, 50,000–50,000,000)
+  - `page`, `limit`
+- Filter: only `status = 'published'`. Draft and archived courses never appear here.
+- Sort: with `search`, ranks by title similarity desc then `publishedAt` desc; without, by `publishedAt` desc.
+- Response: `200 OK` — paginated
+  ```json
+  {
+    "id": "uuid", "title": "...", "thumbnailUrl": null,
+    "priceVnd": 1490000, "durationDays": 30, "tags": ["WEIGHT_LOSS"],
+    "totalLessons": 12, "publishedAt": "...",
+    "pt": { "id": "uuid", "fullName": "Trần Văn B", "bioExcerpt": "5 năm kinh nghiệm...", "specialties": ["WEIGHT_LOSS"] }
+  }
+  ```
+  `bioExcerpt` is the first 150 chars of `pt_profiles.bio`.
+- Errors: `400 VALIDATION_ERROR`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/content/pt-courses/:id
+
+- Auth: required
+- Response: `200 OK` — full course detail (modules + lessons) + PT excerpt. Returns `404 COURSE_NOT_FOUND` for unpublished courses (no draft/archived leakage).
+- Errors: `400 VALIDATION_ERROR`, `404 COURSE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
 ## Error code reference
 
 | Code | Source | Default status |
@@ -1097,7 +1589,6 @@ Single-shot log of a completed workout — session + all set logs inserted atomi
 | INVALID_VERIFICATION_TOKEN | verify-email | 400 |
 | ALREADY_VERIFIED | resend-verification | 400 |
 | INVALID_RESET_TOKEN | reset-password | 400 |
-| INVALID_PRODUCT | payment checkout | 400 |
 | INVALID_JSON | payment webhook (unparseable body) | 400 |
 | UNAUTHORIZED | auth middleware / authed controllers | 401 |
 | INVALID_TOKEN | auth middleware (bad JWT or user gone) / refresh | 401 |
@@ -1107,13 +1598,28 @@ Single-shot log of a completed workout — session + all set logs inserted atomi
 | INVALID_CURRENT_PASSWORD | change-password | 401 |
 | INVALID_PASSWORD | delete account | 401 |
 | INVALID_SIGNATURE | payment webhook (bad PayOS signature) — swallowed, returns 200 | 401 (internal) |
+| FORBIDDEN | requireRole middleware (wrong role for PT/admin routes) | 403 |
 | USER_NOT_FOUND | auth/users/dashboard services (defensive fallback after middleware) | 401 (auth) / 404 (users, dashboard) |
 | USER_METRICS_NOT_FOUND | users metrics | 404 |
 | FOOD_LOG_NOT_FOUND | nutrition update/delete | 404 |
 | FOOD_ITEM_NOT_FOUND | foods getById / nutrition Mode A | 404 |
-| EXERCISE_NOT_FOUND | workout exercise detail / session create | 404 |
+| EXERCISE_NOT_FOUND | workout exercise detail / session create / pt exercise assignment | 404 |
 | SESSION_NOT_FOUND | workout session detail/update/delete | 404 |
+| PT_PROFILE_NOT_FOUND | pt GET/PATCH /me, withdrawal create | 404 |
+| VERIFICATION_NOT_FOUND | admin pt-verifications get/approve/reject | 404 |
+| COURSE_NOT_FOUND | pt course detail/patch/curriculum/publish/archive, payment checkout (PT_COURSE), content detail | 404 |
+| STUDENT_NOT_FOUND | pt students :studentId routes (invalid uuid / no active enrollment with this PT) | 404 |
+| WITHDRAWAL_NOT_FOUND | admin withdrawals approve/reject | 404 |
 | EMAIL_EXISTS | register | 409 |
-| PAYOS_UNAVAILABLE | payment checkout (PayOS call failed) | 503 |
+| ALREADY_PT | pt verification submit (user already a PT) | 409 |
+| VERIFICATION_PENDING | pt verification submit (one pending app already) | 409 |
+| VERIFICATION_ALREADY_REVIEWED | admin pt-verifications approve/reject (not pending) | 409 |
+| COURSE_LOCKED_BY_ENROLLMENTS | pt course patch (price/duration) or curriculum replace, once enrollments exist | 409 |
+| INVALID_COURSE_STATUS_TRANSITION | pt course publish/archive (illegal transition) | 409 |
+| ALREADY_ENROLLED | payment checkout (PT_COURSE) when user already enrolled | 409 |
+| WITHDRAWAL_ALREADY_REVIEWED | admin withdrawal approve/reject (not pending) | 409 |
+| INSUFFICIENT_BALANCE | withdrawal create (amount > available balance) | 409 |
+| CURRICULUM_INCOMPLETE | pt course publish (lessons missing youtubeVideoId); includes `details` array | 422 |
 | WEBHOOK_PROCESSING_ERROR | payment webhook (processing failed; PayOS retries) | 500 |
+| PAYOS_UNAVAILABLE | payment checkout (PayOS call failed) | 503 |
 | INTERNAL_ERROR | any (incl. middleware DB lookup, unknown errors) | 500 |

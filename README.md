@@ -27,12 +27,15 @@ API base path: `/api/v1`. Full per-endpoint reference lives in [docs/API_CURRENT
 | Module | Endpoints | Surface |
 |---|---|---|
 | **Auth** | 9 | register, login, refresh, logout, logout-all, verify-email, resend-verification, forgot-password, reset-password |
-| **Users** | 6 | me (GET/PATCH/DELETE), onboarding, metrics, change-password |
+| **Users** | 7 | me (GET/PATCH/DELETE), onboarding, metrics, change-password, pt-assignments feed |
 | **Nutrition** | 5 | food-logs (POST/GET/PATCH/DELETE), summary/daily |
 | **Foods** | 3 | search, categories, get-by-id — backed by **~2,100 items** seeded from Vietnam NIN (Viện Dinh Dưỡng Việt Nam): 853 ingredients + 1,250 dishes |
 | **Dashboard** | 1 | user home-screen aggregate (today's calories/macros, meal breakdown, streak, weight, goal) |
-| **Payment** | 4 | checkout, PayOS webhook, transactions, subscription — PRO subscriptions via PayOS |
+| **Payment** | 5 | checkout (PRO + PT_COURSE), PayOS webhook, transactions, subscription, purchased courses |
 | **Workout** | 7 | exercises (list/detail), sessions (create/list/detail/update/delete) — backed by **40 seeded exercises** |
+| **PT** | 18 | verification, profile, courses (CRUD + publish/archive), students (list/detail + meal-plan + exercise assignments), earnings, withdrawals |
+| **Admin** | 7 | PT verifications (list/get/approve/reject), withdrawals (list/approve/reject) |
+| **Content** | 2 | public discover + detail for published PT courses |
 
 Plus `GET /health` (no auth, no envelope).
 
@@ -81,6 +84,6 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 Not yet implemented:
 
 - **Scan** — AI food scanning (OpenAI Vision)
-- **PT** — Personal-trainer marketplace (verification, students, courses, withdrawals)
+- **Content** — articles (the `/content` router exists; only PT-course discovery endpoints are wired so far)
 
-Deferred within shipped modules: live workout-session flow (start/log-set/finish), workout programs, PT-course payments (`PT_COURSE` checkout), subscription auto-renewal, and the cron jobs that expire stale subscriptions.
+Deferred within shipped modules: live workout-session flow (start/log-set/finish), workout programs, subscription auto-renewal, the cron jobs that expire stale subscriptions, PT-course refunds (the `earnings_status='refunded'` state is defined but no endpoint flips it yet), automated bank transfers for withdrawals (admin currently records the bank reference manually), and the `on_hold → available` cron for PT earnings (computed inline on read instead).

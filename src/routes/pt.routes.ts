@@ -23,6 +23,11 @@ import {
   postExerciseAssignmentHandler,
   putMealPlanHandler,
 } from '../controllers/pt-students.controller';
+import {
+  createWithdrawalHandler,
+  getEarningsHandler,
+  listOwnWithdrawalsHandler,
+} from '../controllers/pt-earnings.controller';
 
 const router: Router = Router();
 
@@ -78,7 +83,9 @@ router.post(
   postExerciseAssignmentHandler,
 );
 
-// Phase 4 endpoints (/pt/earnings, /pt/withdrawals) are deliberately not
-// registered — Express returns its default 404.
+// Phase 4: Earnings + Withdrawals (PT only).
+router.get('/earnings', requireRole('pt'), getEarningsHandler);
+router.post('/withdrawals', requireRole('pt'), createWithdrawalHandler);
+router.get('/withdrawals', requireRole('pt'), listOwnWithdrawalsHandler);
 
 export default router;

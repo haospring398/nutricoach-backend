@@ -7,5 +7,6 @@ export * from './workout.model';
 export * from './pt.model';
 export * from './course.model';
 export * from './pt-assignment.model';
+export * from './pt-earnings.model';
 // export * from './nutrition.model';
 // export * from './content.model';

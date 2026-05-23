@@ -7,6 +7,11 @@ import {
   listPtVerificationsHandler,
   rejectPtVerificationHandler,
 } from '../controllers/admin.controller';
+import {
+  adminApproveWithdrawalHandler,
+  adminListWithdrawalsHandler,
+  adminRejectWithdrawalHandler,
+} from '../controllers/pt-earnings.controller';
 
 const router: Router = Router();
 
@@ -18,6 +23,9 @@ router.get('/pt-verifications/:id', getPtVerificationByIdHandler);
 router.post('/pt-verifications/:id/approve', approvePtVerificationHandler);
 router.post('/pt-verifications/:id/reject', rejectPtVerificationHandler);
 
-// Phase 4 will add /admin/withdrawals here — not stubbed.
+// Phase 4: Withdrawals.
+router.get('/withdrawals', adminListWithdrawalsHandler);
+router.post('/withdrawals/:id/approve', adminApproveWithdrawalHandler);
+router.post('/withdrawals/:id/reject', adminRejectWithdrawalHandler);
 
 export default router;

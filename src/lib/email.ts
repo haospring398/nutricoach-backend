@@ -104,3 +104,48 @@ export const sendVerificationRejectedEmail = async (
   `.trim();
   await sendEmail(to, 'Hồ sơ HLV của bạn cần được bổ sung', html);
 };
+
+const formatVnd = (n: number): string =>
+  new Intl.NumberFormat('vi-VN').format(n) + ' đ';
+
+export const sendWithdrawalApprovedEmail = async (
+  to: string,
+  fullName: string,
+  amountVnd: number,
+  transferReference: string,
+): Promise<void> => {
+  const name = escapeHtml(fullName);
+  const refHtml = escapeHtml(transferReference);
+  const html = `
+    <p>Xin chào ${name},</p>
+    <p>Yêu cầu rút tiền <strong>${formatVnd(amountVnd)}</strong> của bạn đã được duyệt và đã chuyển khoản.</p>
+    <p><strong>Mã giao dịch:</strong> ${refHtml}</p>
+    <p>Số tiền sẽ được ghi nhận vào tài khoản ngân hàng của bạn trong vài phút tới.</p>
+  `.trim();
+  await sendEmail(
+    to,
+    'Yêu cầu rút tiền của bạn đã được duyệt',
+    html,
+  );
+};
+
+export const sendWithdrawalRejectedEmail = async (
+  to: string,
+  fullName: string,
+  amountVnd: number,
+  reason: string,
+): Promise<void> => {
+  const name = escapeHtml(fullName);
+  const reasonHtml = escapeHtml(reason);
+  const html = `
+    <p>Xin chào ${name},</p>
+    <p>Yêu cầu rút tiền <strong>${formatVnd(amountVnd)}</strong> của bạn không được duyệt.</p>
+    <p><strong>Lý do:</strong> ${reasonHtml}</p>
+    <p>Số dư khả dụng của bạn đã được hoàn lại. Bạn có thể tạo yêu cầu rút tiền mới sau khi xử lý vấn đề trên.</p>
+  `.trim();
+  await sendEmail(
+    to,
+    'Yêu cầu rút tiền của bạn không được duyệt',
+    html,
+  );
+};

@@ -12,6 +12,7 @@ import { ApiError } from '../lib/api-error';
 import { payos } from './payment/payos.client';
 import { PRO_PLANS, type ProPlan } from './payment/plans';
 import { resolvePtCoursePrice } from './course.service';
+import { recordPtEarning } from './pt-earnings.service';
 
 export class PaymentError extends ApiError {}
 
@@ -450,13 +451,36 @@ const activateCourseEnrollment = async (
 
   if (existing) return;
 
-  await tx.insert(enrollments).values({
-    userId: txn.userId,
-    courseId: course.id,
+  const [enrollment] = await tx
+    .insert(enrollments)
+    .values({
+      userId: txn.userId,
+      courseId: course.id,
+      ptId: course.ptId,
+      transactionId: txn.id,
+      status: 'active',
+      enrolledAt: new Date(),
+    })
+    .returning();
+
+  if (!enrollment) {
+    console.error(
+      '[payment] enrollment insert returned no row — earnings skipped',
+      { txnId: txn.id },
+    );
+    return;
+  }
+
+  // Phase 4: capture the PT's earning in the same DB transaction.
+  // Idempotent via pt_earnings_transaction_uq; failures inside the helper
+  // log + skip so the webhook can still complete.
+  await recordPtEarning(tx, {
     ptId: course.ptId,
     transactionId: txn.id,
-    status: 'active',
-    enrolledAt: new Date(),
+    courseId: course.id,
+    enrollmentId: enrollment.id,
+    amountVnd: txn.amountVnd,
+    paidAt: txn.paidAt ?? new Date(),
   });
 };
 

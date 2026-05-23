@@ -13,6 +13,14 @@ declare global {
       // Raw request body bytes, captured by the express.json verify callback.
       // Used by the PayOS webhook handler for signature verification.
       rawBody?: string;
+      // Populated by requirePtAccessToStudent so handlers don't re-query.
+      enrollment?: {
+        id: string;
+        userId: string;
+        courseId: string;
+        ptId: string;
+        enrolledAt: Date;
+      };
     }
   }
 }

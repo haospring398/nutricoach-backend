@@ -78,6 +78,13 @@
       "when": 1779500000000,
       "tag": "0010_courses_enrollments",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1779550000000,
+      "tag": "0011_pt_assignments",
+      "breakpoints": true
     }
   ]
 }

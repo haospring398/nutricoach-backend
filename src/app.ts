@@ -23,7 +23,7 @@ app.use(
 app.use(
   express.json({
     limit: '10mb',
-    verify: (req, _res, buf) => {
+    verify: (req: any, _res: any, buf: any) => {
       (req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8');
     },
   }),

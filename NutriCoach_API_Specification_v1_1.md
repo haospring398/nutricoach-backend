@@ -3,11 +3,71 @@
 > **Tài liệu API Specification chính thức** cho dự án NutriCoach. Tuân thủ chuẩn REST + OpenAPI 3.1. Đây là **single source of truth** cho cả Backend team (Node.js + Express + TypeScript + Drizzle ORM) và Mobile team.
 >
 > **Version:** 1.1.0 · **Last updated:** 2026-05-19 · **Maintainer:** Backend Team
+>
+> ⚠️ **This document describes the TARGET architecture.** The shipped v1 build diverges from it in several places (MVP simplifications). Every divergence is called out inline with a `> ⚠️ **v1 DIVERGENCE**` callout, and summarized in [§0 Implementation Notes](#0-implementation-notes-v1--actual-vs-spec). **Mobile team: read §0 first.** For an endpoint-by-endpoint description of what is *actually* deployed, see `docs/API_CURRENT.md`.
+
+---
+
+## 0. Implementation Notes (v1 — Actual vs Spec)
+
+This section reconciles the spec (target architecture) with the **as-shipped v1 build**. When the two conflict, **the behavior described here and in `docs/API_CURRENT.md` is what the running server does.** Sections 1–16 below remain the forward-looking design target.
+
+### 0.1. What's implemented vs planned
+
+| Module | Status in v1 |
+|---|---|
+| `auth` | ✅ Implemented — email/password, refresh, logout, logout-all, verify-email, resend-verification, forgot/reset-password. ❌ OAuth (`/auth/google`, `/auth/apple`) **not built**. |
+| `users` | ✅ Implemented — me (GET/PATCH/DELETE), onboarding, metrics, change-password, **+ `GET /me/pt-assignments`** (student feed of PT assignments). ❌ `POST /me/avatar` not built. |
+| `scan` | ❌ **Not built.** `openai` is installed but unused. |
+| `foods` | ✅ Implemented — search, `:id`, categories (~2,100 VN NIN items). |
+| `nutrition` | ⚠️ Partial — food-logs CRUD + `summary/daily` only. ❌ AI meal-plan generation, weekly summary **not built**. |
+| `workout` | ⚠️ Partial — exercise library (40 seeded) + session CRUD (create/list/detail/update/delete). ❌ Live session flow (`/logs`, `/finish`), `/programs/me` **not built**. |
+| `pt` | ✅ **Fully implemented (Phases 1–4):** verification, profile, courses (CRUD + publish/archive), students (list/detail + meal-plan + exercise assignments), earnings, withdrawals. |
+| `payment` | ✅ Implemented — checkout (PRO + PT_COURSE), PayOS webhook, transactions list, subscription, **+ `GET /payment/courses`** (purchased courses). ❌ `GET /transactions/:id`, `POST /transactions/:id/cancel` not built. |
+| `content` | ⚠️ Partial — only `discover/pt-courses` + `pt-courses/:id`. ❌ Articles + unified `/search` **not built**. |
+| `dashboard` | ⚠️ Partial — `GET /dashboard/user` only. ❌ `/dashboard/pt`, `/dashboard/admin` **not built**. |
+| `upload` | ❌ **Not built.** No S3/presigned URLs; file references are opaque placeholder strings. |
+| `admin` | ⚠️ Partial — PT verifications (list/detail/approve/reject) + withdrawals (list/approve/reject). ❌ Course moderation, articles, user management, audit-logs **not built**. |
+
+### 0.2. Key architectural simplifications for MVP
+
+| Area | Spec (target) | v1 (actual) |
+|---|---|---|
+| **JWT signing** | RS256 + AWS KMS key pair | **HS256** with `JWT_SECRET` / `JWT_REFRESH_SECRET` env strings |
+| **Refresh token** | Opaque 64-byte random, SHA-256 hashed in DB, rotation + `family_id` + reuse detection | **JWT** stored in `refresh_tokens`; no rotation family, **no reuse detection**, no `TOKEN_REUSE_DETECTED` |
+| **Access token TTL claims** | includes `tier`, `iss`, `aud` | payload is `{ sub, email, role, iat, exp }` — no `tier`/`iss`/`aud` |
+| **Auth response shape** | nested `tokens: { accessToken, refreshToken, expiresIn }` | **flat** `accessToken` + `refreshToken` siblings of `user`; **no `expiresIn`** |
+| **Success envelope** | `{ success, data, meta: { requestId, timestamp } }` | `{ success, data }` only — **no `meta`** |
+| **Error envelope** | `{ success, error, meta }` | `{ success, error }` — no `meta`. `error.details` only on select endpoints (e.g. `CURRICULUM_INCOMPLETE`) |
+| **Validation error status** | `422 VALIDATION_ERROR` | **`400 VALIDATION_ERROR`** (see §0.4) |
+| **Pagination** | offset for lists, **cursor** for long feeds | **offset (`page`/`limit`) everywhere**; cursor deferred to v1.1 |
+| **Course publish** | DRAFT → admin review → PUBLISHED | **DRAFT → PUBLISHED** (PT self-publishes); admin moderation deferred to v1.1 |
+| **Email verification** | gates login (`403 EMAIL_NOT_VERIFIED`) | **informational only** — unverified users can log in and use the app |
+| **Account lockout** | `403 ACCOUNT_LOCKED` after 5 failed logins | **not implemented** |
+| **Rate-limit / cache headers** | `X-RateLimit-*`, `ETag`, `Cache-Control` | rate limiting exists globally but per-endpoint tiers/headers are not guaranteed; no `ETag` |
+| **Background jobs (BullMQ)** | subscription expiry, on-hold→available, etc. | **none** — PT earnings `on_hold → available` is computed inline on read; no cron |
+| **Withdrawal states** | `pending_approval → approved → completed` | **3 states** `pending_approval → completed | rejected` (admin records bank transfer manually; no `approved` step) |
+| **File uploads** | S3 presigned URLs | opaque placeholder key strings; no upload pipeline |
+
+### 0.3. What Mobile should expect vs spec (quick reference)
+
+- **Auth responses are flat.** Read `data.accessToken` / `data.refreshToken`, NOT `data.tokens.accessToken`. There is no `expiresIn` — treat the access token as ~15 min and refresh on 401.
+- **No `meta` block** on any response. Don't depend on `requestId`/`timestamp`.
+- **Validation failures return HTTP 400**, code `VALIDATION_ERROR` (spec says 422). The `message` is the first failing rule; a `details[]` array is present only on a few endpoints.
+- **Login never returns 403** for unverified email or locked account in v1. Only `401 INVALID_CREDENTIALS`.
+- **OAuth, scan, avatar upload, AI meal plans, articles, admin dashboards are not callable** — they 404. Don't surface UI that depends on them.
+- **PT course purchase works end-to-end** (`payment/checkout` with `productType: PT_COURSE` + `productId`), and published courses appear in `content/discover/pt-courses`. A PT publishes a course immediately — no "pending review" state to display.
+- **Enum values in API are UPPERCASE** (e.g. `MEAL_PLAN`, `PENDING_APPROVAL`, `PUBLISHED`).
+
+### 0.4. Status-code note
+
+The spec's §3.4 maps Zod validation failures to `422`. The v1 server returns **`400`** for all validation errors (the controllers' shared `handleError` maps `ZodError → 400 VALIDATION_ERROR`). Other 4xx/5xx codes match the spec. This is the single most common divergence Mobile will hit.
 
 ---
 
 ## 📑 Table of Contents
 
+0. [Implementation Notes (v1 — Actual vs Spec)](#0-implementation-notes-v1--actual-vs-spec) ⚠️ **read first**
 1. [Overview](#1-overview)
 2. [Authentication & Authorization](#2-authentication--authorization)
 3. [Common Conventions](#3-common-conventions)
@@ -73,7 +133,19 @@ NutriCoach sử dụng mô hình **2 token** kết hợp **Refresh Token Rotatio
 
 JWT được ký bằng **RS256** (asymmetric) với key pair lưu trong AWS KMS / Secrets Manager.
 
+> ⚠️ **v1 DIVERGENCE — Token Strategy**
+>
+> The v1 build is materially simpler than the table above. Actual behavior:
+>
+> - **Signing: HS256** (symmetric), not RS256/KMS. Keys are env strings: `JWT_SECRET` (access) and `JWT_REFRESH_SECRET` (refresh) — two different secrets, each ≥32 chars, validated at boot. *RS256 + AWS KMS is **PLANNED v1.2**.*
+> - **Refresh token is a JWT**, not an opaque 64-byte random. It is stored as a row in `refresh_tokens` and is **not** SHA-256-hashed.
+> - **Access token payload is `{ sub, email, role, iat, exp }`** — no `tier`, `iss`, or `aud` claims. `role` is the lowercase DB value (`user`/`pt`/`admin`).
+> - **No token family / rotation reuse-detection in v1.** There is no `family_id`, no `used`/`replaced_by` chain, and no `TOKEN_REUSE_DETECTED` event. Logout / logout-all simply delete refresh-token rows. (Rotation + reuse detection is **PLANNED v1.2**.)
+> - The actual `refresh_tokens` schema is: `id`, `userId → users (cascade)`, `token (varchar 512, unique)`, `expiresAt`, `createdAt`. The columns in the §2.2 Drizzle snippet (`tokenHash`, `familyId`, `used`, `revoked`, `replacedBy`, `userAgent`, `ipAddress`) **do not exist** in v1.
+
 ### 2.2. Refresh Token Rotation Logic
+
+> ⚠️ **v1 DIVERGENCE:** The rotation logic, reuse detection, and `refresh_tokens` schema described in this subsection are **PLANNED v1.2** and not implemented. In v1, `POST /auth/refresh` verifies the refresh JWT, checks the row exists and is unexpired, and issues a new access token (and refresh token); it does not maintain a token family or detect reuse.
 
 Mỗi lần client gọi `POST /auth/refresh`:
 
@@ -147,6 +219,8 @@ Idempotency-Key: <uuid>        # Bắt buộc cho POST /payment/*, /pt/withdrawa
 }
 ```
 
+> ⚠️ **v1 DIVERGENCE:** There is **no `meta` block** in v1. The actual success envelope is `{ "success": true, "data": ... }` only (paginated lists add a sibling `pagination` object — see §3.6). `requestId` / `timestamp` are not emitted.
+
 ### 3.3. Common Response — Error Envelope
 
 Theo nguyên tắc của RFC 7807 nhưng giữ envelope nhất quán:
@@ -166,6 +240,8 @@ Theo nguyên tắc của RFC 7807 nhưng giữ envelope nhất quán:
 }
 ```
 
+> ⚠️ **v1 DIVERGENCE:** No `meta` block. The actual error envelope is `{ "success": false, "error": { "code", "message" } }`. `error.details` is present only on a few endpoints (e.g. `CURRICULUM_INCOMPLETE` returns a `details` array of offending lessons) and its shape is endpoint-specific, not the `{ field, rule, message }` form shown here. For Zod failures, `message` is the first failing rule's message.
+
 ### 3.4. HTTP Status Codes Convention
 
 | Code | Khi nào dùng |
@@ -183,6 +259,8 @@ Theo nguyên tắc của RFC 7807 nhưng giữ envelope nhất quán:
 | `429 Too Many Requests` | Rate limit |
 | `500 Internal Server Error` | Lỗi server không lường trước |
 | `503 Service Unavailable` | OpenAI / PayOS downstream lỗi |
+
+> ⚠️ **v1 DIVERGENCE:** Zod validation failures return **`400`** (code `VALIDATION_ERROR`) in v1, **not `422`**. The `422` row above is the target; the shared controller error handler maps `ZodError → 400`. All other status codes match.
 
 ### 3.5. Standard Error Codes
 
@@ -227,6 +305,13 @@ Response:
 - `limit` max = 100, default = 20.
 - `sort` dùng prefix `-` cho DESC (vd: `-createdAt`).
 - Đối với feed dài (workout logs, food logs) → dùng **cursor-based**: `?cursor=eyJpZCI6...&limit=20`.
+
+> ⚠️ **v1 DIVERGENCE — Pagination**
+>
+> - **Every paginated endpoint uses offset pagination** (`page` + `limit`). **Cursor-based pagination is not implemented in v1** (deferred to v1.1) — even the long feeds (food logs, workout sessions, PT assignments, transactions) use `page`/`limit`.
+> - Per-endpoint `limit` ceilings are typically **50** in v1 (not the global 100 shown here); check each endpoint.
+> - The `sort=-field` query convention is **not** wired generically; sort order is fixed per endpoint (usually newest-first by `createdAt`/`requestedAt`/`enrolledAt`).
+> - The `pagination` object shape (`page, limit, totalItems, totalPages, hasNext, hasPrev`) **does** match v1 exactly.
 
 ### 3.7. Rate Limiting Headers
 
@@ -302,6 +387,18 @@ Các endpoint `POST /payment/checkout`, `POST /pt/withdrawals` **bắt buộc** 
 }
 ```
 
+> ⚠️ **v1 DIVERGENCE — Register response shape**
+>
+> Tokens are **flat siblings of `user`**, not nested in a `tokens` object, and there is **no `expiresIn`**. The actual `data` is:
+> ```json
+> {
+>   "user": { "id": "uuid", "fullName": "...", "email": "...", "role": "USER", "tier": "FREE", "createdAt": "..." },
+>   "accessToken": "<jwt>",
+>   "refreshToken": "<jwt>"
+> }
+> ```
+> Note `id` is a plain UUID (not `usr_…`-prefixed), and the access token is **HS256** (`eyJhbGciOiJIUzI1NiIs…`), not RS256. `EMAIL_ALREADY_EXISTS` is surfaced as code **`EMAIL_EXISTS`**, and `VALIDATION_ERROR` returns **400** (see §0.4). `acceptTerms` is not enforced in v1.
+
 **Errors:**
 - `409 EMAIL_ALREADY_EXISTS` — Email đã tồn tại
 - `422 VALIDATION_ERROR` — Mật khẩu yếu / email sai format
@@ -348,7 +445,11 @@ Các endpoint `POST /payment/checkout`, `POST /pt/withdrawals` **bắt buộc** 
 }
 ```
 
-**Errors:** `401 INVALID_CREDENTIALS`, `403 ACCOUNT_LOCKED` (sau 5 lần sai liên tiếp), `403 EMAIL_NOT_VERIFIED`.
+> ⚠️ **v1 DIVERGENCE — Login response & errors**
+>
+> - Same flat shape as register: `data.accessToken` / `data.refreshToken` as siblings of `data.user`, **no `tokens` wrapper, no `expiresIn`**.
+> - **The only login error in v1 is `401 INVALID_CREDENTIALS`.** `403 ACCOUNT_LOCKED` (failed-attempt lockout) and `403 EMAIL_NOT_VERIFIED` are **not implemented**.
+> - **Email verification is informational only in v1.** A user with `emailVerified: false` can log in and use every feature; the flag is surfaced for UI nudges but never gates access. (Verification-gated login is a planned hardening.)
 
 ---
 
@@ -1333,9 +1434,17 @@ Chi tiết tiến độ: weight history, workout sessions, nutrition adherence, 
 
 **Response `201`:** `{ courseId, status: DRAFT, ... }`. Khóa học cần được Admin duyệt trước khi publish.
 
+> ⚠️ **v1 DIVERGENCE — Course publishing flow**
+>
+> **There is no admin approval step in v1.** A PT **self-publishes**: `DRAFT → PUBLISHED` directly via `POST /pt/courses/:id/publish`. There is no `PENDING_REVIEW` state and `course_status` has only `draft | published | archived`. Publish validation is purely structural (≥1 module, ≥1 lesson, and **every lesson must have a non-null `youtubeVideoId`** or it returns `422 CURRICULUM_INCOMPLETE` with a `details` array of offending lessons). The admin course-moderation queue (`GET /admin/courses?status=PENDING_REVIEW`, §15.8–15.9) is **deferred to v1.1** and not built.
+>
+> Actual publish transitions: `draft → published` (publish), `draft|published → archived` (archive). Any other transition returns `409 INVALID_COURSE_STATUS_TRANSITION`. Once a course has non-refunded enrollments, `priceVnd`/`durationDays` are locked and curriculum replacement is rejected (`409 COURSE_LOCKED_BY_ENROLLMENTS`).
+
 ### 10.10. `GET /api/v1/pt/courses` · `PATCH /api/v1/pt/courses/:id` · `POST /api/v1/pt/courses/:id/publish`
 
 CRUD chuẩn.
+
+> ⚠️ **v1 NOTE:** The shipped course surface is broader than this line implies: `GET /pt/courses`, `GET /pt/courses/:id`, `PATCH /pt/courses/:id`, `PUT /pt/courses/:id/curriculum`, `POST /pt/courses/:id/publish`, `POST /pt/courses/:id/archive`. See `docs/API_CURRENT.md` for full request/response shapes.
 
 ### 10.11. `GET /api/v1/pt/earnings`
 

@@ -8,6 +8,9 @@ NutriCoach is a REST API for a Vietnamese nutrition + fitness coaching mobile ap
 Stack: **Node.js ≥18 · TypeScript 5.9 · Express 4 · PostgreSQL (Drizzle ORM 0.29 /
 drizzle-kit 0.20) · Redis (ioredis)**. Layer-based MVC.
 
+The **PT (personal-trainer) marketplace is feature-complete** — verification →
+courses → students → earnings/withdrawals, end-to-end (Phases 1–4 all shipped).
+
 ---
 
 ## 1. Folder structure (`src/`)
@@ -25,69 +28,83 @@ src/
 │
 ├── models/                 Drizzle table definitions (one file per domain)
 │   ├── index.ts            Re-exports every model (the Drizzle `schema` object)
-│   ├── user.model.ts       users, refresh_tokens
-│   ├── user-metrics.model.ts  user_metrics (onboarding body metrics)
-│   ├── food-item.model.ts  food_items (VN NIN catalog)
-│   ├── food-log.model.ts   food_logs
-│   ├── payment.model.ts    transactions, subscriptions
-│   ├── workout.model.ts    exercises, workout_sessions, session_exercise_logs
-│   └── pt.model.ts         pt_verifications, pt_profiles
+│   ├── user.model.ts            users, refresh_tokens
+│   ├── user-metrics.model.ts    user_metrics (onboarding body metrics)
+│   ├── food-item.model.ts       food_items (VN NIN catalog)
+│   ├── food-log.model.ts        food_logs
+│   ├── payment.model.ts         transactions, subscriptions
+│   ├── workout.model.ts         exercises, workout_sessions, session_exercise_logs
+│   ├── pt.model.ts              pt_verifications, pt_profiles
+│   ├── course.model.ts          courses, course_modules, course_lessons, enrollments
+│   ├── pt-assignment.model.ts   pt_assignments
+│   └── pt-earnings.model.ts     pt_earnings, withdrawals
 │
 ├── controllers/            HTTP layer: parse req → call service → envelope response
-│   ├── auth.controller.ts        users.controller.ts     nutrition.controller.ts
-│   ├── foods.controller.ts       dashboard.controller.ts payment.controller.ts
-│   ├── workout.controller.ts     pt.controller.ts        admin.controller.ts
+│   ├── auth.controller.ts        users.controller.ts        nutrition.controller.ts
+│   ├── foods.controller.ts       dashboard.controller.ts    payment.controller.ts
+│   ├── workout.controller.ts     pt.controller.ts           admin.controller.ts
+│   ├── course.controller.ts      pt-students.controller.ts  pt-earnings.controller.ts
 │
 ├── services/               Business logic; no Express types
-│   ├── auth.service.ts           users.service.ts        nutrition.service.ts
-│   ├── foods.service.ts          dashboard.service.ts    payment.service.ts
-│   ├── workout.service.ts        pt.service.ts
+│   ├── auth.service.ts           users.service.ts           nutrition.service.ts
+│   ├── foods.service.ts          dashboard.service.ts       payment.service.ts
+│   ├── workout.service.ts        pt.service.ts              course.service.ts
+│   ├── pt-students.service.ts    pt-earnings.service.ts
 │   └── payment/
 │       ├── payos.client.ts       PayOS SDK singleton (throws at boot if creds missing)
 │       └── plans.ts              Hardcoded PRO_PLANS price table
 │
 ├── routes/                 Express routers (one per module)
 │   ├── index.ts            Aggregator — mounts every module under /api/v1
-│   ├── auth.routes.ts            users.routes.ts         nutrition.routes.ts
-│   ├── foods.routes.ts           dashboard.routes.ts     payment.routes.ts
-│   ├── workout.routes.ts         pt.routes.ts            admin.routes.ts
+│   ├── auth.routes.ts            users.routes.ts            nutrition.routes.ts
+│   ├── foods.routes.ts           dashboard.routes.ts        payment.routes.ts
+│   ├── workout.routes.ts         pt.routes.ts               admin.routes.ts
+│   └── content.routes.ts         (public PT-course discovery)
 │
 ├── validations/            Zod schemas (one file per module, suffix .validation.ts)
-│   ├── auth.validation.ts        users.validation.ts     nutrition.validation.ts
-│   ├── foods.validation.ts       payment.validation.ts   workout.validation.ts
-│   └── pt.validation.ts
+│   ├── auth.validation.ts        users.validation.ts        nutrition.validation.ts
+│   ├── foods.validation.ts       payment.validation.ts      workout.validation.ts
+│   ├── pt.validation.ts          course.validation.ts       pt-assignment.validation.ts
+│   └── pt-earnings.validation.ts
 │
 ├── middlewares/
-│   ├── auth.middleware.ts  `authenticate` — verifies JWT, fetches user row,
-│   │                       rejects soft-deleted accounts; sets req.user
-│   └── role.middleware.ts  `requireRole(...roles)` — 403 guard, runs after authenticate
+│   ├── auth.middleware.ts       `authenticate` — verifies JWT, fetches user row,
+│   │                            rejects soft-deleted accounts; sets req.user
+│   ├── role.middleware.ts       `requireRole(...roles)` — 403 guard, after authenticate
+│   └── pt-access.middleware.ts  `requirePtAccessToStudent` — 404-not-403 enrollment
+│                                gate for /pt/students/:studentId/*; sets req.enrollment
 │
 ├── lib/                    Shared utilities
 │   ├── api-error.ts        `ApiError(status, code, message)` base class
 │   ├── auth-tokens.ts      Redis-backed email-verify / password-reset tokens
-│   ├── email.ts            Resend wrapper + transactional senders (silent-fail)
+│   ├── email.ts            Resend wrapper + transactional senders (silent-fail),
+│   │                       incl. PT verification + withdrawal approved/rejected emails
 │   ├── hash.ts             bcrypt hash/compare (cost 12)
 │   ├── jwt.ts              access/refresh token sign + verify (HS256)
 │   └── user-presenter.ts   role/tier lowercase-DB → uppercase-API mappers
 │
 ├── db/
 │   ├── migrate.ts          Migration runner (`npm run db:migrate`)
-│   ├── migrations/         0000–0009 .sql files + meta/ (drizzle journal+snapshots)
+│   ├── migrations/         0000–0012 .sql files + meta/ (drizzle journal+snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts       CSV → food_items  (`npm run seed:foods`)
 │       └── exercises.seed.ts   JSON → exercises  (`npm run seed:exercises`)
 │
 └── types/
-    └── express.d.ts        Augments Express Request with `user` and `rawBody`
+    └── express.d.ts        Augments Express Request with `user`, `rawBody`, `enrollment`
 ```
 
 Seed data lives outside `src/`: `data/seed/vn_food.csv`, `vn_dishes.csv`, `exercises.json`.
+
+**Untracked files (present in the tree but NOT git-managed, not part of any module):**
+`Gemini.md` and `src/config/swagger.ts`. Origin unknown; nothing imports `swagger.ts`.
+Leave them alone unless explicitly asked.
 
 ---
 
 ## 2. Database tables
 
-16 tables across 7 model files. PKs are `uuid` unless noted.
+**19 tables across 10 model files.** PKs are `uuid` unless noted.
 
 ### `user.model.ts`
 - **users** — `id`, `email` (unique), `password` (bcrypt), `fullName`, `phone?`, `avatarUrl?`, `role` (user_role), `tier` (user_tier), `emailVerified`, `onboardingCompleted`, `preferredLanguage`, `createdAt`, `updatedAt`, `deletedAt?` (soft delete)
@@ -103,7 +120,7 @@ Seed data lives outside `src/`: `data/seed/vn_food.csv`, `vn_dishes.csv`, `exerc
 - **food_logs** — `id`, `userId` → users (cascade), `foodItemId?` → food_items (set null), `foodName` (varchar 200), `calories` (**integer**), `proteinG?`/`carbsG?`/`fatG?` (numeric 6,2 — **nullable**), `portion` (numeric 4,2 — multiplier), `mealType`, `consumedAt` (**timestamp WITHOUT time zone**), `sourceType`, `scanId?`, `createdAt`
 
 ### `payment.model.ts`
-- **transactions** — `id`, `userId` → users (restrict), `orderCode` (**bigint**, unique), `productType`, `productRefId?`, `amountVnd` (int), `status`, `paymentLinkId?`, `checkoutUrl?`, `reference?`, `paidAt?`, `expiresAt?`, `failureReason?`, `rawWebhookPayload?` (jsonb), `createdAt`, `updatedAt`
+- **transactions** — `id`, `userId` → users (restrict), `orderCode` (**bigint**, unique), `productType` (product_type), `productRefId?` (varchar 64 — holds the course UUID for `pt_course`), `amountVnd` (int), `status`, `paymentLinkId?`, `checkoutUrl?`, `reference?`, `paidAt?`, `expiresAt?`, `failureReason?`, `rawWebhookPayload?` (jsonb), `createdAt`, `updatedAt`
 - **subscriptions** — `id`, `userId` → users (cascade), `plan` (product_type), `status`, `startedAt`, `expiresAt`, `autoRenew`, `lastTransactionId?` → transactions, `createdAt`, `updatedAt`
 
 ### `workout.model.ts`
@@ -113,7 +130,20 @@ Seed data lives outside `src/`: `data/seed/vn_food.csv`, `vn_dishes.csv`, `exerc
 
 ### `pt.model.ts`
 - **pt_verifications** — `id`, `userId` → users (cascade), `fullName`, `dateOfBirth` (date), `citizenIdNumber`, `citizenIdFrontKey`/`citizenIdBackKey` (varchar 256 — opaque file keys), `certificates` (jsonb array), `specialties` (text[]), `yearsOfExperience`, `bio`, `bankCode`/`bankAccountNumber`/`bankAccountHolder`, `status` (verification_status), `reviewedByAdminId?` → users, `reviewedAt?`, `reviewNote?`, `requireResubmit?`, `submittedAt`, `createdAt`, `updatedAt`
-- **pt_profiles** — `id`, `userId` → users (cascade, **unique**), `bio`, `specialties` (text[]), `yearsOfExperience`, bank fields, `commissionPercent` (default 10), `approvedFromVerificationId?` → pt_verifications, `createdAt`, `updatedAt`
+- **pt_profiles** — `id`, `userId` → users (cascade, **unique**), `bio`, `specialties` (text[]), `yearsOfExperience`, bank fields, `commissionPercent` (int, default 10), `approvedFromVerificationId?` → pt_verifications, `createdAt`, `updatedAt`
+
+### `course.model.ts` (Phase 2)
+- **courses** — `id`, `ptId` → users (restrict), `title` (varchar 200), `description` (text), `thumbnailUrl?` (varchar 512), `priceVnd` (int), `durationDays` (int), `tags` (text[]), `status` (course_status, default `draft`), `publishedAt?`, `archivedAt?`, `totalLessons` (int, **service-maintained denormalized count**), `createdAt`, `updatedAt`. Indexes on `pt_id`, `status`, + trigram GIN on `title` (migration). CHECKs: price 50k–50M, duration 1–365, `char_length(trim(title)) ≥ 3`.
+- **course_modules** — `id`, `courseId` → courses (cascade), `title` (varchar 200), `displayOrder` (int), timestamps. **UNIQUE (course_id, display_order)**. CHECK `display_order ≥ 0`.
+- **course_lessons** — `id`, `moduleId` → course_modules (cascade), `title` (varchar 200), `youtubeVideoId?` (varchar 32 — nullable until publish), `durationMin` (int default 0), `displayOrder` (int), timestamps. **UNIQUE (module_id, display_order)**. CHECKs: order ≥ 0, duration 0–600.
+- **enrollments** — `id`, `userId` → users (cascade), `courseId` → courses (restrict), `ptId` → users (restrict, denormalized from course), `transactionId` → transactions (restrict), `status` (enrollment_status, default `active`), `enrolledAt`, `completedAt?`, timestamps. **UNIQUE (transaction_id)** (webhook idempotency). Partial unique **(user_id, course_id) WHERE status != 'refunded'** (no double-enroll). Indexes on user/pt/course. *Owned by Phase 3 conceptually; ships in Phase 2 because the payment webhook writes it.*
+
+### `pt-assignment.model.ts` (Phase 3)
+- **pt_assignments** — `id`, `ptId` → users (restrict), `studentId` → users (cascade), `enrollmentId` → enrollments (cascade), `type` (pt_assignment_type), `payload` (jsonb — shape varies by type, validated at Zod), `supersededBy?` (**uuid, self-pointer, intentionally NOT an FK**), `acknowledgedAt?` (reserved, unused in v1), `scheduledFor?` (date), `note?`, timestamps. CHECK `jsonb_typeof(payload) = 'object'`. Partial unique **(enrollment_id) WHERE type = 'meal_plan' AND superseded_by IS NULL** (one active meal plan per enrollment). Indexes: `(pt_id, student_id)`, `(student_id, created_at)`, `(enrollment_id, type)`.
+
+### `pt-earnings.model.ts` (Phase 4)
+- **pt_earnings** — `id`, `ptId` → users (restrict), `transactionId` → transactions (restrict), `courseId` → courses (restrict), `enrollmentId` → enrollments (restrict), `grossVnd`, `platformFeeVnd`, `netVnd`, `commissionPercentSnapshot` (int — **immutable rate captured at payment**), `status` (earnings_status, default `on_hold`), `availableAt` (paid_at + 7 days), timestamps. **UNIQUE (transaction_id)** (idempotency). CHECKs: `net = gross - fee` & all ≥ 0; commission 0–50. Indexes on `pt_id`, `(status, available_at)`. This is the **canonical earnings ledger**, not a cache.
+- **withdrawals** — `id`, `ptId` → users (restrict), `amountVnd` (int), `bankCode`/`bankAccountNumber`/`bankAccountHolder` (**snapshot at request time**), `status` (withdrawal_status, default `pending_approval`), `idempotencyKey` (varchar 64), `note?`, `requestedAt`, `reviewedByAdminId?` → users (set null), `reviewedAt?`, `transferReference?`, `rejectionReason?`, timestamps. **UNIQUE (pt_id, idempotency_key)** (idempotency safety net behind Redis). CHECK `amount_vnd ≥ 200000 AND amount_vnd % 1000 = 0`. Indexes on `pt_id`, `status`.
 
 ---
 
@@ -124,37 +154,56 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | Mount | Module | Endpoints | List |
 |---|---|---:|---|
 | `/auth` | auth | 10 | register, login, refresh, logout, logout-all, me, verify-email, resend-verification, forgot-password, reset-password |
-| `/users` | users | 6 | me (GET/PATCH/DELETE), me/onboarding, me/metrics, me/change-password |
+| `/users` | users | 7 | me (GET/PATCH/DELETE), me/onboarding, me/metrics, me/change-password, me/pt-assignments |
 | `/nutrition` | nutrition | 5 | food-logs (POST/GET/PATCH/DELETE), summary/daily |
 | `/foods` | foods | 3 | search, categories, :id |
 | `/dashboard` | dashboard | 1 | user |
-| `/payment` | payment | 4 | checkout, webhook/payos, transactions, subscription |
+| `/payment` | payment | 5 | checkout, webhook/payos, transactions, subscription, courses |
 | `/workout` | workout | 7 | exercises (list/detail), sessions (POST/GET/GET:id/PATCH/DELETE) |
-| `/pt` | pt | 4 | verification (POST), verification/status, me (GET/PATCH) |
-| `/admin` | admin | 4 | pt-verifications (list/detail), pt-verifications/:id/approve, /reject |
+| `/pt` | pt | 18 | verification (POST), verification/status, me (GET/PATCH), courses (POST/GET/GET:id/PATCH, :id/curriculum PUT, :id/publish, :id/archive), students (GET, GET:studentId, :studentId/meal-plan PUT, :studentId/exercises POST), earnings (GET), withdrawals (POST/GET) |
+| `/admin` | admin | 7 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject) |
+| `/content` | content | 2 | discover/pt-courses, pt-courses/:id |
 
-**44 endpoints total** (+ `/health`). Note: `README.md` / `API_CURRENT.md` say "Auth (9)" — they exclude `GET /auth/me` from the count; the route file has 10 handlers.
+**65 endpoints total** (+ `/health`). Note: `README.md` / `API_CURRENT.md` say "Auth (9)" —
+they exclude `GET /auth/me` from the count; the route file has 10 handlers.
 
-Auth requirements: `/auth` register/login/refresh/verify-email/forgot-password/reset-password are public; the rest of `/auth` and all of `/users`, `/nutrition`, `/foods`, `/dashboard`, `/workout` require `authenticate`. `/payment` is `authenticate`-gated except `POST /payment/webhook/payos` (public, PayOS-signature-verified). `/pt` requires `authenticate` (`/pt/me` also `requireRole('pt')`). `/admin` requires `authenticate` + `requireRole('admin')`.
+### Auth requirements per mount
+- `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
+- `/users`, `/nutrition`, `/foods`, `/dashboard`, `/workout`, `/content`: all require `authenticate`.
+- `/payment`: `authenticate`-gated **except** `POST /payment/webhook/payos` (public, PayOS-signature-verified).
+- `/pt`: requires `authenticate`. `verification` + `verification/status` are open to any authed user (a prospective PT). `me`, `courses/*`, `students/*`, `earnings`, `withdrawals` add `requireRole('pt')`. The `students/:studentId/*` routes additionally chain `requirePtAccessToStudent`.
+- `/admin`: `authenticate` + `requireRole('admin')` (applied router-wide).
 
 ---
 
 ## 4. Enums — ⚠️ DB casing is NOT uniform
 
 **API responses are always UPPERCASE.** DB storage casing is split — this is a real
-quirk, not a convention. Conversion is only needed for the lowercase group.
+quirk, not a convention. Conversion is only needed for the lowercase group. **21 enums total.**
 
 ### Stored LOWERCASE in DB → must convert to UPPERCASE for API
-| Enum | DB values |
-|---|---|
-| `user_role` | `user, pt, admin` |
-| `transaction_status` | `pending, paid, failed, expired, cancelled` |
-| `product_type` | `pro_monthly, pro_yearly, pt_course` |
-| `subscription_status` | `active, expired, cancelled` |
-| `muscle_group` | `chest, back, shoulders, biceps, triceps, legs, glutes, core, cardio, full_body` |
-| `equipment` | `bodyweight, dumbbell, barbell, machine, kettlebell, band, cable, other` |
-| `difficulty` | `beginner, intermediate, advanced` |
-| `verification_status` | `pending_review, approved, rejected` |
+| Enum | DB values | Since |
+|---|---|---|
+| `user_role` | `user, pt, admin` | core |
+| `transaction_status` | `pending, paid, failed, expired, cancelled` | payment |
+| `product_type` | `pro_monthly, pro_yearly, pt_course` | payment |
+| `subscription_status` | `active, expired, cancelled` | payment |
+| `muscle_group` | `chest, back, shoulders, biceps, triceps, legs, glutes, core, cardio, full_body` | workout |
+| `equipment` | `bodyweight, dumbbell, barbell, machine, kettlebell, band, cable, other` | workout |
+| `difficulty` | `beginner, intermediate, advanced` | workout |
+| `verification_status` | `pending_review, approved, rejected` | PT P1 |
+| `course_status` | `draft, published, archived` | **PT P2** |
+| `enrollment_status` | `active, completed, refunded` | **PT P2** |
+| `pt_assignment_type` | `meal_plan, exercise_addition` | **PT P3** |
+| `earnings_status` | `on_hold, available, refunded, paid_out` | **PT P4** |
+| `withdrawal_status` | `pending_approval, completed, rejected` | **PT P4** |
+
+Notes on the Phase 4 enums:
+- `earnings_status` — `paid_out` is **defined but never written** in v1. The `on_hold → available`
+  transition is computed on read (time-based, no cron); only `refunded`/`paid_out` would be terminal
+  mutations, and neither is wired yet. So stored rows are effectively `on_hold` until a refund flow ships.
+- `withdrawal_status` — deliberately 3 states (no separate `approved`); admin "approve" jumps straight to
+  `completed` because there's no automated bank-transfer step in v1.
 
 ### Stored UPPERCASE in DB → API value is identical (no conversion)
 | Enum | DB + API values |
@@ -169,10 +218,10 @@ quirk, not a convention. Conversion is only needed for the lowercase group.
 | `food_log_source` | `MANUAL, SCAN` |
 
 Conversion helpers: `src/lib/user-presenter.ts` (`toPublicRole` maps `user→USER` etc.;
-`toPublicTier` is identity). Payment / workout / pt services use inline typed
-`toApiEnum`/`toDbEnum` (`Uppercase<T>`/`Lowercase<T>` + `.toUpperCase()`/`.toLowerCase()`).
-`specialties` (PT) is a `text[]`, not a pgEnum — stored UPPERCASE, validated by a Zod
-allow-list.
+`toPublicTier` is identity). Payment / workout / pt / course / pt-students / pt-earnings
+services use inline typed `toApiEnum`/`toDbEnum` (`Uppercase<T>`/`Lowercase<T>` +
+`.toUpperCase()`/`.toLowerCase()`). `specialties`/`tags` are `text[]`, not pgEnums —
+stored UPPERCASE, validated by Zod allow-lists.
 
 ---
 
@@ -182,87 +231,124 @@ allow-list.
   - Success: `{ "success": true, "data": <payload> }`
   - Paginated list: `{ "success": true, "data": [...], "pagination": { page, limit, totalItems, totalPages, hasNext, hasPrev } }`
   - Error: `{ "success": false, "error": { "code": "STRING_CODE", "message": "..." } }`
+  - Some errors carry `error.details` (e.g. `CURRICULUM_INCOMPLETE` lists offending lessons).
   - `204 No Content` has no body. The PayOS webhook is the one envelope exception (`{ "received": true, "action": "..." }`).
 - **Error handling** — no global error middleware. Each controller has local
   `sendSuccess` / `sendError` / `handleError` helpers. `handleError` maps `ZodError`
   → `400 VALIDATION_ERROR`, `ApiError` (and subclasses) → its `status`/`code`/`message`,
   anything else → `500 INTERNAL_ERROR`. Domain errors are thrown as `ApiError`
-  subclasses (`AuthError`, `UserError`, `NutritionError`, `FoodsError`,
-  `NutritionError`, `PaymentError`, `WorkoutError`, `DashboardError`, `PtError`).
+  subclasses (`AuthError`, `UserError`, `NutritionError`, `FoodsError`, `PaymentError`,
+  `WorkoutError`, `DashboardError`, `PtError`, `CourseError`, `PtStudentsError`,
+  `PtEarningsError`). Middlewares that run before a controller (auth / role / pt-access)
+  respond directly with the envelope instead of throwing.
 - **MVC file naming** — `*.model.ts` (Drizzle tables), `*.service.ts` (logic),
   `*.controller.ts` (HTTP), `*.routes.ts` (Express router), `*.validation.ts` (Zod).
   One per module, all flat in their layer folder. (Exception: `services/payment/`
   has two support files.)
 - **Enum casing** — API always UPPERCASE; DB casing varies (see §4). Convert only the
-  lowercase group.
+  lowercase group. New enums are created lowercase-in-DB (matches the newer modules).
 - **Drizzle ORM only** — no raw `pg.Pool.query()`. Raw SQL is allowed only inside
   migration `.sql` files and `sql\`...\`` template tags (used for `similarity()`,
-  array `@>`, `AT TIME ZONE`, aggregate casts).
+  `= ANY()`, `FILTER (WHERE ...)`, `date_trunc`, `AT TIME ZONE`, interval math, aggregate casts).
 - **Env** — read only via `import { env } from '../config/env'`. Never touch
   `process.env` elsewhere. `env.ts` Zod-validates and exits the process on failure.
-- **Auth** — `authenticate` middleware verifies the HS256 JWT, loads the user row,
-  rejects soft-deleted accounts (`401 ACCOUNT_DELETED`), sets `req.user = { id, email,
-  role }`. `req.user.role` comes from the JWT — it can be **stale** after a role change
-  until the user re-logs-in.
-- **Migrations** — generated with `npx drizzle-kit generate:pg`, applied with
-  `npm run db:migrate`. Never auto-run migrate; the human applies it.
+- **Auth** — `authenticate` verifies the HS256 JWT, loads the user row, rejects
+  soft-deleted accounts (`401 ACCOUNT_DELETED`), sets `req.user = { id, email, role }`.
+  `req.user.role` comes from the JWT — it can be **stale** after a role change (e.g. an
+  admin approving a PT) until the user re-logs-in / refreshes.
+- **Idempotency** — `POST /payment/checkout` and `POST /pt/withdrawals` both take an
+  `Idempotency-Key` header, cache the response in Redis (24h TTL), and have a DB unique
+  constraint as the safety net if Redis misses. First call → 201, idempotent replay → 200.
+- **Migrations** — applied with `npm run db:migrate`. Never auto-run migrate; the human
+  applies it. The PT-marketplace migrations (`0010`–`0012`) were **hand-written** (not
+  drizzle-generated) and required manual `meta/_journal.json` entries.
+
+### Middlewares (`src/middlewares/`)
+- **`authenticate`** (`auth.middleware.ts`) — JWT + user-row load + soft-delete check; sets `req.user`.
+- **`requireRole(...roles)`** (`role.middleware.ts`) — runs after `authenticate`; responds `403 FORBIDDEN`
+  if `req.user.role` is not in the allow-list. Compares against the lowercase DB role values.
+- **`requirePtAccessToStudent`** (`pt-access.middleware.ts`) — guards `/pt/students/:studentId/*`. Requires
+  an **active** enrollment where `pt_id = req.user.id AND user_id = :studentId`. **Returns `404
+  STUDENT_NOT_FOUND` for every failure mode** (invalid UUID, no enrollment, refunded, unknown student) so a
+  PT can't probe for other users' existence. Side effect: attaches the enrollment row to `req.enrollment`
+  (typed in `types/express.d.ts`) so the handler doesn't re-query.
+
+### Payment webhook touchpoints (`payment.service.ts` → `handlePayosWebhook`)
+On a verified `PAID` event, inside **one DB transaction**, branches on `transaction.productType`:
+- `pro_monthly` / `pro_yearly` → `activateProSubscription` (extend/insert subscription, flip `users.tier = PRO`).
+- `pt_course` → `activateCourseEnrollment`: inserts the `enrollments` row (idempotent on `transaction_id`)
+  **and** calls `recordPtEarning` to insert the `pt_earnings` row (commission snapshot, `available_at =
+  paid_at + 7 days`, `status = on_hold`). Both are idempotent on their `transaction_id` unique indexes; a
+  missing course or PT profile logs + skips (the webhook must still return 200).
 
 ---
 
 ## 6. Implemented vs planned
 
-**Implemented (9 modules):** Auth, Users, Nutrition, Foods, Dashboard, Payment (PRO
-subscriptions only), Workout (library + session logging), PT (Phase 1: verification +
-profile), Admin (PT-verification review scaffold).
+**Implemented (10 mounted modules):** Auth, Users, Nutrition, Foods, Dashboard, Payment
+(PRO subscriptions **+ PT-course purchases**), Workout (library + session logging),
+**PT (Phases 1–4 complete: verification → courses → students → earnings/withdrawals)**,
+Admin (PT-verification review + withdrawal review), Content (public PT-course discovery).
 
 **Planned / not built:**
 - **Scan** — AI food scanning (OpenAI Vision). `openai` is installed but unused.
-- **Content** — articles / discovery.
-- **PT Phases 2–4** — courses, students, earnings, withdrawals. `pt.routes.ts` and
-  `admin.routes.ts` are designed to be appended to; unbuilt paths 404 by design.
-- **Deferred within shipped modules:** live workout-session flow (start/log-set/finish),
-  workout programs, `PT_COURSE` checkout (PayOS webhook no-ops it), subscription
-  auto-renewal, the cron jobs that expire stale subscriptions / downgrade `users.tier`.
+- **Content articles** — the `/content` router exists but only carries the two PT-course
+  discovery endpoints; articles/blog endpoints are not built.
+- **Deferred within shipped modules:**
+  - live workout-session flow (start/log-set/finish), workout programs
+  - subscription auto-renewal + the cron that expires stale subscriptions / downgrades `users.tier`
+  - **PT-course refunds** — `enrollment_status='refunded'` and `earnings_status='refunded'` are defined
+    but no endpoint flips them; balance math already accounts for refunded rows
+  - **automated bank transfers** for withdrawals — admin records the transfer reference manually
+  - the `on_hold → available` cron for PT earnings — computed inline on read instead
+  - PT student history endpoints (`/pt/students/:id/food-logs`, `/workout-sessions`), assignment
+    edit/delete, assignment "mark as read", `from_pt_assignment_id` one-tap logging — all Phase-3.5+
 
 ---
 
 ## 7. Known schema quirks (read before touching the DB layer)
 
-1. **Enum DB casing is mixed** — see §4. The biggest footgun. A new enum should be
-   created lowercase-in-DB (matches the newer modules); but the foods/nutrition/metrics
+1. **Enum DB casing is mixed** — see §4. The biggest footgun. New enums should be
+   created lowercase-in-DB (matches the newer modules); the foods/nutrition/metrics
    enums are uppercase-in-DB and predate that decision.
 2. **Things that exist only in migration SQL, not the Drizzle schema** — drizzle-kit
    0.20's DSL can't express them, so they were hand-patched into migration files and
    `db:generate` is blind to them (it won't drop or recreate them):
-   - GIN + trigram indexes on `food_items` (name search) and `exercises`
+   - GIN + trigram indexes on `food_items`, `exercises`, and `courses.title` (name search)
    - GIN index on `exercises.muscle_groups`
    - composite index `food_logs_user_consumed_idx (user_id, consumed_at DESC)`
-   - partial unique index `subscriptions_one_active_per_user` (`WHERE status='active'`)
-   - partial unique index `pt_verifications_one_pending_per_user` (`WHERE status='pending_review'`)
+   - partial unique indexes: `subscriptions_one_active_per_user` (`WHERE status='active'`),
+     `pt_verifications_one_pending_per_user` (`WHERE status='pending_review'`),
+     `enrollments_user_course_active_uq` (`WHERE status != 'refunded'`),
+     `pt_assignments_one_active_meal_plan_per_enrollment` (`WHERE type='meal_plan' AND superseded_by IS NULL`)
    - CHECK constraints: `subscriptions_plan_check`, `pt_verifications_age_check`,
-     `pt_verifications_experience_check`, `pt_profiles_commission_check`
+     `pt_verifications_experience_check`, `pt_profiles_commission_check`, `courses_*_check`,
+     `course_modules_order_check`, `course_lessons_*_check`, `pt_assignments_payload_is_object`,
+     `pt_earnings_amounts_check`, `pt_earnings_commission_check`, `withdrawals_amount_check`
 3. **Array-default bug** — drizzle-kit 0.20 emits `DEFAULT  NOT NULL` (empty) for
-   `.array().default([])`. Migration `0002` was hand-patched to `DEFAULT '{}'`. Watch
-   for this on any future `text[]` column with a default.
+   `.array().default([])`. Migration `0002` was hand-patched to `DEFAULT '{}'`; the
+   course `tags` column uses `.default(sql\`'{}'::text[]\`)` to dodge it. Watch for this
+   on any future `text[]` column with a default.
 4. **Index column DESC** — drizzle-kit 0.20 can't express a `DESC` index column. Some
-   indexes are `ASC` in the model/snapshot but `DESC` in the applied migration SQL
-   (`food_logs_user_consumed_idx`, `workout_sessions_user_performed_idx`). Cosmetic
-   mismatch; `db:generate` won't churn on it.
+   indexes are `ASC` in the model/snapshot but `DESC` in the applied migration SQL.
+   Cosmetic; `db:generate` won't churn on it.
 5. **`food_logs.consumed_at` is `timestamp WITHOUT time zone`** and stores **UTC
    wall-clock**. To get a VN calendar date you must double-cast:
    `(consumed_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh')::date` — see
    `dashboard.service.ts`. The nutrition daily-summary uses a naive `::date` (UTC day),
-   so dashboard and `/nutrition/summary/daily` can disagree near VN midnight.
-6. **`food_logs` macros are nullable** — `protein_g/carbs_g/fat_g` (Mode A logs from a
-   PARTIAL catalog item leave missing macros NULL; SQL `SUM` skips them). The API
-   coerces NULL → 0 in responses to keep the shape stable.
+   so dashboard and `/nutrition/summary/daily` can disagree near VN midnight. (All other
+   timestamp columns — payment/course/pt — are `timestamptz`.)
+6. **`food_logs` macros are nullable** — `protein_g/carbs_g/fat_g`; SQL `SUM` skips NULLs.
+   The API coerces NULL → 0 in responses to keep the shape stable.
 7. **`db:generate` npm script is wrong** — `package.json` has `"drizzle-kit generate"`
    but drizzle-kit 0.20.18 needs the `generate:pg` subcommand. Run
-   `npx drizzle-kit generate:pg` directly. drizzle-kit prompts interactively on column
-   renames; new tables/columns/indexes generate without prompts.
+   `npx drizzle-kit generate:pg` directly. It prompts interactively on column renames;
+   new tables/columns/indexes generate without prompts. **Migrations `0010`–`0012` were
+   written by hand** (faster than fighting the interactive prompts for partial uniques +
+   CHECKs) — keep that pattern for new PT-marketplace tables.
 8. **Hand-written migrations need a journal entry** — `meta/_journal.json` drives
-   `db:migrate`. Migration `0006` was hand-written and required a manually-added
-   journal entry; the rest were drizzle-generated (which updates the journal).
+   `db:migrate`. Migrations `0006` and `0010`–`0012` were hand-written and required
+   manually-added journal entries (idx + tag + a synthetic `when` timestamp).
 9. **Boot-time required env** — `JWT_SECRET` + `JWT_REFRESH_SECRET` (≥32 chars, must
    differ), `RESEND_API_KEY`, and `PAYOS_CLIENT_ID`/`PAYOS_API_KEY`/`PAYOS_CHECKSUM_KEY`
    (`payos.client.ts` throws at import if absent). Placeholders are fine in dev.
@@ -270,11 +356,51 @@ profile), Admin (PT-verification review scaffold).
     **synchronous** `verifyPaymentWebhookData()`, not the v2 `paymentRequests` /
     `webhooks` namespaces.
 
+### PT-marketplace-specific gotchas
+11. **Meal-plan "self-supersede trick"** (`pt-students.service.ts → putMealPlan`) — the
+    partial unique index forbids two active meal plans per enrollment, so you can't insert
+    the new plan while the old one is still active. The service sets the old row's
+    `superseded_by` to **its own id** first (drops it out of the partial index without
+    mutating a user-visible field), inserts the new active row, then repoints the old row's
+    `superseded_by` at the real new id. All in one transaction. Documented in a code comment
+    — don't "simplify" it.
+12. **PT balance is derived, never stored** — there is no `balance_vnd` column.
+    `availableBalanceVnd = SUM(net_vnd WHERE status NOT IN ('refunded','paid_out') AND now() >=
+    available_at) − SUM(withdrawal.amount_vnd WHERE status IN ('pending_approval','completed'))`.
+    Rejected withdrawals release reserved balance automatically (excluded from the filter).
+13. **pg returns SUM aggregates as strings** (bigint quirk) even with `COALESCE(...,0)::int`.
+    `pt-earnings.service.ts` wraps every aggregate in `x != null ? Number(x) : 0` so callers
+    always get a JS number — mirror this in any new earnings/balance query.
+14. **Migration `0012` backfill only handles `paid`** — `transaction_status` has **no
+    `refunded` value** (refunds aren't wired), so the `pt_earnings` backfill filters
+    `t.status = 'paid'` and every backfilled row starts `on_hold`. `commission_percent_snapshot`
+    uses the *current* `pt_profiles.commission_percent` (accepted because the rate hasn't changed
+    pre-launch; only seed data exists). Idempotent via `ON CONFLICT (transaction_id) DO NOTHING`.
+15. **PII whitelist in `pt-students.service.ts`** — the student-detail endpoint NEVER does
+    `SELECT *` on `users`. PT sees `fullName`, `avatarUrl`, computed `age` (raw DOB discarded),
+    body metrics, and stored daily targets — never email, phone, password, payment history, or tier.
+
 ---
 
 ## Migrations to date
 
-`0000`–`0009` applied in order: auth/users → user-metrics → users expansion →
-food_logs → food_items → category-length fix → food_logs user index → payment →
-workout → pt. Run `npm run db:migrate` to apply; `npm run seed:foods` and
-`npm run seed:exercises` to populate catalogs.
+`0000`–`0012` applied in order:
+
+| # | Tag | What |
+|---|---|---|
+| 0000 | chief_toro | auth/users base |
+| 0001 | thin_sebastian_shaw | user_metrics |
+| 0002 | small_celestials | users expansion (array-default hand-patch) |
+| 0003 | abnormal_lifeguard | food_logs |
+| 0004 | faulty_toad_men | food_items + pg_trgm + trigram indexes |
+| 0005 | fix_category_length | food_items.category varchar 128→255 |
+| 0006 | food_logs_user_idx | composite (user_id, consumed_at) index *(hand-written)* |
+| 0007 | outstanding_hex | payment (transactions, subscriptions) |
+| 0008 | ordinary_newton_destine | workout (exercises, sessions, logs) |
+| 0009 | last_zarda | PT Phase 1 (pt_verifications, pt_profiles) |
+| 0010 | courses_enrollments | **PT P2** courses/modules/lessons/enrollments *(hand-written)* |
+| 0011 | pt_assignments | **PT P3** pt_assignments *(hand-written)* |
+| 0012 | pt_earnings_withdrawals | **PT P4** pt_earnings, withdrawals + backfill *(hand-written)* |
+
+Run `npm run db:migrate` to apply; `npm run seed:foods` and `npm run seed:exercises`
+to populate catalogs.

@@ -24,8 +24,10 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented: **Auth (9), Users (7), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin (7), Content (2)**
+- Implemented: **Auth (10), Users (7), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin (7), Content (2)** — **65 endpoints total** (+ `GET /health`)
 - Planned: Scan, Content articles (only PT-course discovery is wired)
+
+> **Count note:** these are exact `router.METHOD(...)` counts from the route files (verified against `docs/CODEBASE_CONTEXT.md §3`). The PT module is **18** endpoints (Phase 1: 4, Phase 2 courses: 7, Phase 3 students: 4, Phase 4 earnings/withdrawals: 3) — not 29. Auth is **10** including `GET /auth/me`.
 
 ---
 
@@ -166,6 +168,8 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ### GET /api/v1/auth/me
 
+> **Both `GET /auth/me` and `GET /users/me` return the current user. Mobile team should use [`GET /users/me`](#get-apiv1usersme) as the canonical endpoint — it includes `metrics` and onboarding status; this one returns only the bare user identity (no metrics).**
+
 - Auth: required
 - Request: none
 - Response: `200 OK`
@@ -272,6 +276,8 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 All endpoints require auth.
 
 ### GET /api/v1/users/me
+
+> **Canonical "who am I" endpoint.** Both `GET /users/me` and [`GET /auth/me`](#get-apiv1authme) return user info; Mobile team should prefer **this one** — it includes `metrics` (BMR/TDEE/daily targets) and onboarding status, which `GET /auth/me` omits.
 
 - Auth: required
 - Request: none

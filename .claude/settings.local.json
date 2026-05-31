@@ -25,7 +25,8 @@
       "Bash(node -e \"const e=require\\('./data/seed/exercises.json'\\); console.log\\('count:', e.length\\); const ids=e.map\\(x=>x.id\\); console.log\\('unique ids:', new Set\\(ids\\).size\\); const allVar=e.flatMap\\(x=>\\(x.variations||[]\\).map\\(v=>v.id\\)\\); const missing=allVar.filter\\(v=>!ids.includes\\(v\\)\\); console.log\\('dangling variation ids:', missing.length?missing:'none'\\); const d={}; e.forEach\\(x=>x.muscleGroups.forEach\\(m=>d[m]=\\(d[m]||0\\)+1\\)\\); console.log\\('muscle dist:', d\\);\")",
       "Bash(echo \"EXIT=$?\")",
       "Bash(tee /tmp/tsc.log)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(grep -nE \"GET /api/v1/auth/me|GET /api/v1/users/me$|/users/me/pt-assignments|## PT|## Admin|## Content|/payment/courses|/pt/students|/pt/earnings|/pt/courses\" docs/API_CURRENT.md)"
     ]
   }
 }

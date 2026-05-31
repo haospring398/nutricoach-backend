@@ -2,7 +2,9 @@ import express, { Application, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import swaggerUi from 'swagger-ui-express';
 import { env } from './config/env';
+import { swaggerSpec } from './config/swagger';
 import apiRouter from './routes';
 
 const app: Application = express();
@@ -35,7 +37,18 @@ if (env.NODE_ENV !== 'test') {
   app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 }
 
+// ── API docs (Swagger UI) ────────────────────────────────────
+// Served outside the /api/v1 prefix. The raw spec is exposed at
+// /api-docs.json for tooling / client generation.
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get('/api-docs.json', (_req: Request, res: Response) => {
+  res.json(swaggerSpec);
+});
+
 // ── Health check ─────────────────────────────────────────────
+// Not annotated for Swagger: it lives at the root, outside the /api/v1
+// server base declared in swagger.ts, so it can't be expressed accurately
+// under that single base. /api-docs covers the /api/v1 surface.
 app.get('/health', (_req: Request, res: Response) => {
   res.json({
     status: 'ok',

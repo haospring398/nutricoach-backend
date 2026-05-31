@@ -378,6 +378,40 @@ const options: swaggerJsdoc.Options = {
             tags: { type: 'array', items: { type: 'string' } },
           },
         },
+        CourseCurriculumBody: {
+          type: 'object',
+          required: ['modules'],
+          properties: {
+            modules: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 20,
+              items: {
+                type: 'object',
+                required: ['title', 'displayOrder', 'lessons'],
+                properties: {
+                  title: { type: 'string', minLength: 3, maxLength: 200 },
+                  displayOrder: { type: 'integer', minimum: 0 },
+                  lessons: {
+                    type: 'array',
+                    minItems: 1,
+                    maxItems: 50,
+                    items: {
+                      type: 'object',
+                      required: ['title', 'displayOrder'],
+                      properties: {
+                        title: { type: 'string', minLength: 3, maxLength: 200 },
+                        youtubeVideoId: { type: 'string', nullable: true },
+                        durationMin: { type: 'integer', minimum: 0, maximum: 600 },
+                        displayOrder: { type: 'integer', minimum: 0 },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
 
         // ── PT Earnings / Withdrawals ───────────────────────
         CreateWithdrawalBody: {

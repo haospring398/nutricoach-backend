@@ -507,6 +507,49 @@ const options: swaggerJsdoc.Options = {
             requireResubmit: { type: 'boolean', default: true },
           },
         },
+
+        // ── Content (Articles) ──────────────────────────────
+        CreateArticleBody: {
+          type: 'object',
+          required: ['title', 'excerpt', 'body', 'categoryId'],
+          properties: {
+            title: { type: 'string', minLength: 3, maxLength: 200 },
+            excerpt: { type: 'string', minLength: 20, maxLength: 300 },
+            body: { type: 'string', minLength: 50, description: 'Markdown' },
+            categoryId: { type: 'string', format: 'uuid' },
+            coverImageUrl: { type: 'string', maxLength: 512, nullable: true },
+            tags: {
+              type: 'array',
+              maxItems: 10,
+              items: { type: 'string', minLength: 1, maxLength: 40 },
+            },
+          },
+        },
+        PatchArticleBody: {
+          type: 'object',
+          description: 'At least one field required. Slug is immutable.',
+          properties: {
+            title: { type: 'string', minLength: 3, maxLength: 200 },
+            excerpt: { type: 'string', minLength: 20, maxLength: 300 },
+            body: { type: 'string', minLength: 50, description: 'Markdown' },
+            categoryId: { type: 'string', format: 'uuid' },
+            coverImageUrl: { type: 'string', maxLength: 512, nullable: true },
+            tags: {
+              type: 'array',
+              maxItems: 10,
+              items: { type: 'string', minLength: 1, maxLength: 40 },
+            },
+          },
+        },
+        CreateCategoryBody: {
+          type: 'object',
+          required: ['slug', 'name'],
+          properties: {
+            slug: { type: 'string', pattern: '^[a-z0-9-]{2,64}$' },
+            name: { type: 'string', minLength: 2, maxLength: 100 },
+            displayOrder: { type: 'integer', minimum: 0, maximum: 1000, default: 0 },
+          },
+        },
       },
     },
     security: [{ BearerAuth: [] }],

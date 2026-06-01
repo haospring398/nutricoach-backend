@@ -12,6 +12,14 @@ import {
   adminListWithdrawalsHandler,
   adminRejectWithdrawalHandler,
 } from '../controllers/pt-earnings.controller';
+import {
+  adminListArticlesHandler,
+  archiveArticleHandler,
+  createArticleHandler,
+  createCategoryHandler,
+  publishArticleHandler,
+  updateArticleHandler,
+} from '../controllers/content.controller';
 
 const router: Router = Router();
 
@@ -336,5 +344,256 @@ router.post('/withdrawals/:id/approve', adminApproveWithdrawalHandler);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/withdrawals/:id/reject', adminRejectWithdrawalHandler);
+
+// ── Articles (write) ──────────────────────────────────────────
+// requireRole('admin') is already applied at the router level.
+
+/**
+ * @openapi
+ * /admin/articles:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all articles (any status)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [DRAFT, PUBLISHED, ARCHIVED]
+ *       - in: query
+ *         name: category
+ *         description: Category slug
+ *         schema:
+ *           type: string
+ *           minLength: 1
+ *           maxLength: 64
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           minLength: 1
+ *           maxLength: 100
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 50
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Paginated articles (all statuses)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       403:
+ *         description: Forbidden (not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a draft article
+ *     description: Slug and readingTimeMin are server-generated. Author is the calling admin.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateArticleBody'
+ *     responses:
+ *       201:
+ *         description: Draft article created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Category not found (CATEGORY_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/articles', adminListArticlesHandler);
+router.post('/articles', createArticleHandler);
+
+/**
+ * @openapi
+ * /admin/articles/{id}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Update an article
+ *     description: Editing the body recomputes readingTimeMin. The slug never changes.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/PatchArticleBody'
+ *     responses:
+ *       200:
+ *         description: Updated article
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Article or category not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch('/articles/:id', updateArticleHandler);
+
+/**
+ * @openapi
+ * /admin/articles/{id}/publish:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Publish an article (DRAFT to PUBLISHED)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Article published
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: Article not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Invalid status transition (INVALID_ARTICLE_STATUS_TRANSITION)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       422:
+ *         description: Article incomplete (ARTICLE_INCOMPLETE)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/articles/:id/publish', publishArticleHandler);
+
+/**
+ * @openapi
+ * /admin/articles/{id}/archive:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Archive an article (DRAFT or PUBLISHED to ARCHIVED)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Article archived
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: Article not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Invalid status transition (already archived)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/articles/:id/archive', archiveArticleHandler);
+
+/**
+ * @openapi
+ * /admin/categories:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create an article category
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateCategoryBody'
+ *     responses:
+ *       201:
+ *         description: Category created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Category slug already exists (CATEGORY_SLUG_EXISTS)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/categories', createCategoryHandler);
 
 export default router;

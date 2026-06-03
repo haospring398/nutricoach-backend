@@ -24,10 +24,12 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented: **Auth (10), Users (7), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin (7), Content (2)** — **65 endpoints total** (+ `GET /health`)
-- Planned: Scan, Content articles (only PT-course discovery is wired)
+- Implemented (by logical module): **Auth (10), Users (7), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (11 — 2 PT-course + 9 articles), Quests (8 — 4 user + 4 admin)** — **82 endpoints total** (+ `GET /health`)
+- Planned: Scan (AI food scanning)
 
-> **Count note:** these are exact `router.METHOD(...)` counts from the route files (verified against `docs/CODEBASE_CONTEXT.md §3`). The PT module is **18** endpoints (Phase 1: 4, Phase 2 courses: 7, Phase 3 students: 4, Phase 4 earnings/withdrawals: 3) — not 29. Auth is **10** including `GET /auth/me`.
+> **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 17 handlers spanning three logical modules (PT review 7 + article/category write 6 + quest admin 4); the table above groups by logical module. PT is **18** (P1 4, P2 courses 7, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
+
+> **⚠️ Documentation gap:** the **9 Content/articles endpoints** (migration 0013 — `GET/POST /content/articles*`, `GET /content/categories`, `POST/PATCH /admin/articles*`, `POST /admin/categories`) are wired, tested, and documented in **Swagger (`/api-docs`)**, but their per-endpoint request/response blocks are **not yet in this file**. The Quest endpoints below ARE fully documented. Tracked as a follow-up.
 
 ---
 
@@ -1587,6 +1589,158 @@ Public-ish (any authenticated user) discovery of published PT courses. The `/con
 
 ---
 
+## Quests — `/api/v1/quests` & `/api/v1/admin/quests`
+
+Gamification: daily quests, points, and an admin leaderboard. All endpoints require auth; admin endpoints additionally require `requireRole('admin')`. Points live in a dedicated `user_points` table (off the auth hot-path). All per-day logic uses the **VN calendar date** (`Asia/Ho_Chi_Minh`). The quest catalog is seeded by migration 0014 with 7 quests.
+
+**Quest verification model:** `DAILY_LOGIN` is auto-triggered server-side (on `GET /quests/daily`); `PERFECT_DIARY` + `DISCIPLINE_MASTER` are server-computed by `/diary-lock`; `WORKOUT_DONE` is server-verified against `workout_sessions`; `AI_SCAN`, `PT_VISIT`, `DAILY_SHARE` are client-verified with a DB daily cap only.
+
+### GET /api/v1/quests/daily
+
+Active quest catalog + today's per-quest progress. The **first call of a VN day auto-awards `DAILY_LOGIN`**.
+
+- Auth: required
+- Request: none
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "dailyLoginTriggered": true,
+      "totalPoints": 60,
+      "quests": [
+        {
+          "id": "DAILY_LOGIN",
+          "title": "Điểm danh mỗi ngày",
+          "description": "...",
+          "pointsPerCompletion": 10,
+          "maxCompletionsPerDay": 1,
+          "todayCompletedCount": 1,
+          "todayPointsEarned": 10,
+          "isCompleted": true
+        }
+      ]
+    }
+  }
+  ```
+  `dailyLoginTriggered` is `true` only on the day's first call (FE shows the "+10 điểm điểm danh!" popup).
+- Errors: `401 UNAUTHORIZED`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/quests/trigger
+
+Trigger a client-verifiable quest. The enum **excludes** the server-initiated quests (`DAILY_LOGIN`, `PERFECT_DIARY`, `DISCIPLINE_MASTER`) — passing them is a validation error.
+
+- Auth: required
+- Request: body
+  - `questId`: enum `"AI_SCAN" | "WORKOUT_DONE" | "PT_VISIT" | "DAILY_SHARE"`
+  - `date`: string `YYYY-MM-DD`
+  - `referenceId` (optional, ≤64 chars): required for `WORKOUT_DONE` (the workout session id); audit-only for the others
+- Behavior: `WORKOUT_DONE` verifies the session exists, belongs to the user, and was performed on `date` (VN). `AI_SCAN`/`PT_VISIT`/`DAILY_SHARE` accept the client claim, capped by `maxCompletionsPerDay`.
+- Response: `200 OK`
+  ```json
+  { "success": true, "data": { "triggered": true, "pointsAwarded": 20, "totalPoints": 80 } }
+  ```
+  `triggered` is `false` (and `pointsAwarded: 0`) when the daily cap is already reached.
+- Errors:
+  - `400 VALIDATION_ERROR` — bad body, or `DAILY_LOGIN`/`PERFECT_DIARY`/`DISCIPLINE_MASTER` passed
+  - `400 REFERENCE_REQUIRED` — `WORKOUT_DONE` without `referenceId`
+  - `400 INVALID_REFERENCE` — session not found / not yours / not performed on `date`
+  - `404 QUEST_NOT_FOUND` — unknown or inactive quest
+  - `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/quests/diary-lock
+
+Server-side check that awards `PERFECT_DIARY` (all of BREAKFAST/LUNCH/DINNER logged for the date) and, if total calories ≤ TDEE, `DISCIPLINE_MASTER`.
+
+- Auth: required
+- Request: body
+  - `date`: string `YYYY-MM-DD`
+- Response: `200 OK`
+  ```json
+  { "success": true, "data": { "missionsCompleted": ["PERFECT_DIARY", "DISCIPLINE_MASTER"], "pointsAwarded": 80, "totalPoints": 160 } }
+  ```
+  Calling again the same day yields `missionsCompleted: []` (already awarded).
+- Errors:
+  - `400 VALIDATION_ERROR`
+  - `409 DIARY_INCOMPLETE` — not all 3 meals logged for the date
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/quests/points
+
+Total points + paginated award history.
+
+- Auth: required
+- Request: query — `page` (default 1), `limit` (default 20)
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "totalPoints": 160,
+      "history": [
+        { "questId": "DISCIPLINE_MASTER", "questTitle": "Bậc thầy Kỷ luật", "date": "2026-06-03", "completedCount": 1, "pointsEarned": 50 }
+      ],
+      "pagination": { "page": 1, "limit": 20, "totalItems": 5, "totalPages": 1, "hasNext": false, "hasPrev": false }
+    }
+  }
+  ```
+  Note: pagination here sits **inside** `data` (this endpoint's service shape), unlike the sibling-level `pagination` used by list endpoints elsewhere.
+- Errors: `401 UNAUTHORIZED`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/quests
+
+Quest catalog (all quests, ordered by id). Admin only.
+
+- Auth: required (`requireRole('admin')`)
+- Response: `200 OK` — `{ success: true, data: [ <quest rows> ] }`
+- Errors: `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/quests
+
+Create a quest. Admin only.
+
+- Auth: required (`requireRole('admin')`)
+- Request: body — `id` (UPPER_SNAKE_CASE), `title`, `description`, `pointsPerCompletion` (int > 0), `maxCompletionsPerDay` (int > 0, default 1), `isActive` (bool, default true)
+- Response: `201 Created` — the created quest
+- Errors: `400 VALIDATION_ERROR`, `409 QUEST_ID_EXISTS`, `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/admin/quests/:id
+
+Update a quest. Admin only.
+
+- Auth: required (`requireRole('admin')`)
+- Request: path `id`; body — any of `title`, `description`, `pointsPerCompletion`, `maxCompletionsPerDay`, `isActive`
+- Response: `200 OK` — the updated quest
+- Errors: `400 VALIDATION_ERROR`, `404 QUEST_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/quests/leaderboard
+
+Top users by total points. Admin only.
+
+- Auth: required (`requireRole('admin')`)
+- Request: query — `limit` (default 50, capped at 100)
+- Response: `200 OK`
+  ```json
+  { "success": true, "data": [ { "rank": 1, "userId": "uuid", "fullName": "Nguyễn A", "avatarUrl": null, "totalPoints": 320 } ] }
+  ```
+- Errors: `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
 ## Error code reference
 
 | Code | Source | Default status |
@@ -1596,6 +1750,8 @@ Public-ish (any authenticated user) discovery of published PT courses. The `/con
 | ALREADY_VERIFIED | resend-verification | 400 |
 | INVALID_RESET_TOKEN | reset-password | 400 |
 | INVALID_JSON | payment webhook (unparseable body) | 400 |
+| REFERENCE_REQUIRED | quests trigger (WORKOUT_DONE without referenceId) | 400 |
+| INVALID_REFERENCE | quests trigger (WORKOUT_DONE session not found / not yours / wrong date) | 400 |
 | UNAUTHORIZED | auth middleware / authed controllers | 401 |
 | INVALID_TOKEN | auth middleware (bad JWT or user gone) / refresh | 401 |
 | ACCOUNT_DELETED | auth middleware (`deleted_at` not null) | 401 |
@@ -1616,6 +1772,9 @@ Public-ish (any authenticated user) discovery of published PT courses. The `/con
 | COURSE_NOT_FOUND | pt course detail/patch/curriculum/publish/archive, payment checkout (PT_COURSE), content detail | 404 |
 | STUDENT_NOT_FOUND | pt students :studentId routes (invalid uuid / no active enrollment with this PT) | 404 |
 | WITHDRAWAL_NOT_FOUND | admin withdrawals approve/reject | 404 |
+| QUEST_NOT_FOUND | quests trigger / admin quest update (unknown or inactive) | 404 |
+| ARTICLE_NOT_FOUND | content article detail / admin article update/publish/archive (or not published) | 404 |
+| CATEGORY_NOT_FOUND | admin article create/update (unknown categoryId) | 404 |
 | EMAIL_EXISTS | register | 409 |
 | ALREADY_PT | pt verification submit (user already a PT) | 409 |
 | VERIFICATION_PENDING | pt verification submit (one pending app already) | 409 |
@@ -1625,7 +1784,12 @@ Public-ish (any authenticated user) discovery of published PT courses. The `/con
 | ALREADY_ENROLLED | payment checkout (PT_COURSE) when user already enrolled | 409 |
 | WITHDRAWAL_ALREADY_REVIEWED | admin withdrawal approve/reject (not pending) | 409 |
 | INSUFFICIENT_BALANCE | withdrawal create (amount > available balance) | 409 |
+| DIARY_INCOMPLETE | quests diary-lock (not all of BREAKFAST/LUNCH/DINNER logged) | 409 |
+| QUEST_ID_EXISTS | admin quests create (duplicate id) | 409 |
+| INVALID_ARTICLE_STATUS_TRANSITION | admin article publish/archive (illegal transition) | 409 |
+| CATEGORY_SLUG_EXISTS | admin categories create (duplicate slug) | 409 |
 | CURRICULUM_INCOMPLETE | pt course publish (lessons missing youtubeVideoId); includes `details` array | 422 |
+| ARTICLE_INCOMPLETE | admin article publish (body too short) | 422 |
 | WEBHOOK_PROCESSING_ERROR | payment webhook (processing failed; PayOS retries) | 500 |
 | PAYOS_UNAVAILABLE | payment checkout (PayOS call failed) | 503 |
 | INTERNAL_ERROR | any (incl. middleware DB lookup, unknown errors) | 500 |

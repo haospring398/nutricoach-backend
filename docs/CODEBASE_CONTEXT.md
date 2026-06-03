@@ -104,7 +104,7 @@ Leave them alone unless explicitly asked.
 
 ## 2. Database tables
 
-**19 tables across 10 model files.** PKs are `uuid` unless noted.
+**24 tables across 12 model files.** PKs are `uuid` unless noted.
 
 ### `user.model.ts`
 - **users** — `id`, `email` (unique), `password` (bcrypt), `fullName`, `phone?`, `avatarUrl?`, `role` (user_role), `tier` (user_tier), `emailVerified`, `onboardingCompleted`, `preferredLanguage`, `createdAt`, `updatedAt`, `deletedAt?` (soft delete)
@@ -145,6 +145,15 @@ Leave them alone unless explicitly asked.
 - **pt_earnings** — `id`, `ptId` → users (restrict), `transactionId` → transactions (restrict), `courseId` → courses (restrict), `enrollmentId` → enrollments (restrict), `grossVnd`, `platformFeeVnd`, `netVnd`, `commissionPercentSnapshot` (int — **immutable rate captured at payment**), `status` (earnings_status, default `on_hold`), `availableAt` (paid_at + 7 days), timestamps. **UNIQUE (transaction_id)** (idempotency). CHECKs: `net = gross - fee` & all ≥ 0; commission 0–50. Indexes on `pt_id`, `(status, available_at)`. This is the **canonical earnings ledger**, not a cache.
 - **withdrawals** — `id`, `ptId` → users (restrict), `amountVnd` (int), `bankCode`/`bankAccountNumber`/`bankAccountHolder` (**snapshot at request time**), `status` (withdrawal_status, default `pending_approval`), `idempotencyKey` (varchar 64), `note?`, `requestedAt`, `reviewedByAdminId?` → users (set null), `reviewedAt?`, `transferReference?`, `rejectionReason?`, timestamps. **UNIQUE (pt_id, idempotency_key)** (idempotency safety net behind Redis). CHECK `amount_vnd ≥ 200000 AND amount_vnd % 1000 = 0`. Indexes on `pt_id`, `status`.
 
+### `content.model.ts` (migration 0013)
+- **articles** — `id`, `slug` (varchar 280, **unique**, server-generated, **immutable after create**), `title` (varchar 200), `excerpt` (varchar 300), `body` (text — **raw Markdown**, never rendered server-side), `categoryId` → article_categories (restrict), `authorId` → users (restrict, always an admin in v1), `coverImageUrl?` (varchar 512), `tags` (text[]), `readingTimeMin` (int — **server-computed at 200 wpm**), `viewCount` (int default 0 — fire-and-forget increment on detail read), `status` (article_status, default `draft`), `publishedAt?`, `archivedAt?`, timestamps. CHECKs: title trim ≥ 3, excerpt ≥ 20, body ≥ 50. Indexes: `(status, published_at DESC)`, `category_id`, trigram GIN on `title`, GIN on `tags`.
+- **article_categories** — `id`, `slug` (varchar 64, **unique**), `name` (varchar 100, Vietnamese), `displayOrder` (int default 0), `createdAt`. Seeded with 5 rows (nutrition, training, lifestyle, recipes, motivation).
+
+### `quest.model.ts` (migration 0014)
+- **quests** — `id` (**varchar 64 slug PK**, e.g. `DAILY_LOGIN`), `title` (varchar 200), `description` (text), `pointsPerCompletion` (int), `maxCompletionsPerDay` (int default 1), `isActive` (bool default true), timestamps. **Seeded with 7 rows** (DAILY_LOGIN, AI_SCAN, PERFECT_DIARY, DISCIPLINE_MASTER, WORKOUT_DONE, PT_VISIT, DAILY_SHARE).
+- **daily_mission_logs** — `id`, `userId` → users (cascade), `questId` → quests (restrict), `date` (date — VN calendar date), `completedCount` (int default 0), `pointsEarned` (int default 0), `referenceId?` (varchar 64 — dedup/audit key), `createdAt`. **UNIQUE (user_id, quest_id, date)** (one row per user/quest/VN-day; `completedCount` accumulates up to the cap). Index `(user_id, date DESC)`.
+- **user_points** — `userId` (**PK** + FK → users, cascade), `totalPoints` (int default 0), `updatedAt`. Separate from `users` so gamification writes stay off the auth hot-path; upserted via `onConflictDoUpdate` on each award. Index `(total_points DESC)`.
+
 ---
 
 ## 3. Mounted routes (`src/routes/index.ts`)
@@ -161,25 +170,31 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | `/payment` | payment | 5 | checkout, webhook/payos, transactions, subscription, courses |
 | `/workout` | workout | 7 | exercises (list/detail), sessions (POST/GET/GET:id/PATCH/DELETE) |
 | `/pt` | pt | 18 | verification (POST), verification/status, me (GET/PATCH), courses (POST/GET/GET:id/PATCH, :id/curriculum PUT, :id/publish, :id/archive), students (GET, GET:studentId, :studentId/meal-plan PUT, :studentId/exercises POST), earnings (GET), withdrawals (POST/GET) |
-| `/admin` | admin | 7 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject) |
-| `/content` | content | 2 | discover/pt-courses, pt-courses/:id |
+| `/admin` | admin | 17 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject), **articles (list/create/:id PATCH/:id publish/:id archive + categories POST)**, **quests (list/create/:id PATCH/leaderboard)** |
+| `/content` | content | 5 | discover/pt-courses, pt-courses/:id, **articles (list), categories (list), articles/:slug** |
+| `/quests` | quest | 4 | daily, trigger, diary-lock, points |
 
-**65 endpoints total** (+ `/health`). Note: `README.md` / `API_CURRENT.md` say "Auth (9)" —
-they exclude `GET /auth/me` from the count; the route file has 10 handlers.
+**82 endpoints total** (+ `/health`). The `/admin` mount physically carries 17 handlers spanning
+three logical modules: PT review (7), Content/articles write (6), Quests admin (4). By logical
+module the split is **Auth 10 · Users 7 · Nutrition 5 · Foods 3 · Dashboard 1 · Payment 5 ·
+Workout 7 · PT 18 · PT-review/admin 7 · Content 11 (2 PT-course + 9 articles) · Quests 8
+(4 user + 4 admin)** = 82.
 
 ### Auth requirements per mount
 - `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
-- `/users`, `/nutrition`, `/foods`, `/dashboard`, `/workout`, `/content`: all require `authenticate`.
+- `/users`, `/nutrition`, `/foods`, `/dashboard`, `/workout`, `/content`, `/quests`: all require `authenticate`. (Article read endpoints under `/content` are auth-required for router consistency — a deliberate deviation from the spec's "PUBLIC".)
 - `/payment`: `authenticate`-gated **except** `POST /payment/webhook/payos` (public, PayOS-signature-verified).
 - `/pt`: requires `authenticate`. `verification` + `verification/status` are open to any authed user (a prospective PT). `me`, `courses/*`, `students/*`, `earnings`, `withdrawals` add `requireRole('pt')`. The `students/:studentId/*` routes additionally chain `requirePtAccessToStudent`.
-- `/admin`: `authenticate` + `requireRole('admin')` (applied router-wide).
+- `/admin`: `authenticate` + `requireRole('admin')` (applied router-wide) — covers PT review, article/category write, and quest admin (list/create/update/leaderboard).
+- `/quests`: `authenticate` only (any logged-in user). The 4 quest **admin** endpoints live under `/admin/quests/*` (merged into `admin.routes.ts`), not under this mount.
 
 ---
 
 ## 4. Enums — ⚠️ DB casing is NOT uniform
 
 **API responses are always UPPERCASE.** DB storage casing is split — this is a real
-quirk, not a convention. Conversion is only needed for the lowercase group. **21 enums total.**
+quirk, not a convention. Conversion is only needed for the lowercase group. **22 enums total.**
+(The quest module added **no** enums — `daily_mission_logs.date` is a plain `date` column and quest ids are varchar slugs, not a pgEnum.)
 
 ### Stored LOWERCASE in DB → must convert to UPPERCASE for API
 | Enum | DB values | Since |
@@ -197,6 +212,7 @@ quirk, not a convention. Conversion is only needed for the lowercase group. **21
 | `pt_assignment_type` | `meal_plan, exercise_addition` | **PT P3** |
 | `earnings_status` | `on_hold, available, refunded, paid_out` | **PT P4** |
 | `withdrawal_status` | `pending_approval, completed, rejected` | **PT P4** |
+| `article_status` | `draft, published, archived` | **content** |
 
 Notes on the Phase 4 enums:
 - `earnings_status` — `paid_out` is **defined but never written** in v1. The `on_hold → available`
@@ -285,15 +301,16 @@ On a verified `PAID` event, inside **one DB transaction**, branches on `transact
 
 ## 6. Implemented vs planned
 
-**Implemented (10 mounted modules):** Auth, Users, Nutrition, Foods, Dashboard, Payment
+**Implemented (11 mounted modules):** Auth, Users, Nutrition, Foods, Dashboard, Payment
 (PRO subscriptions **+ PT-course purchases**), Workout (library + session logging),
 **PT (Phases 1–4 complete: verification → courses → students → earnings/withdrawals)**,
-Admin (PT-verification review + withdrawal review), Content (public PT-course discovery).
+Admin (PT-verification review + withdrawal review + article/category write + quest admin),
+**Content (PT-course discovery + articles/categories — migration 0013)**,
+**Quests (gamification: daily quests, points, leaderboard — migration 0014)**.
 
 **Planned / not built:**
-- **Scan** — AI food scanning (OpenAI Vision). `openai` is installed but unused.
-- **Content articles** — the `/content` router exists but only carries the two PT-course
-  discovery endpoints; articles/blog endpoints are not built.
+- **Scan** — AI food scanning (OpenAI Vision). `openai` is installed but unused. Note: the
+  quest `AI_SCAN` trigger is client-verified until this ships (see quirk #18).
 - **Deferred within shipped modules:**
   - live workout-session flow (start/log-set/finish), workout programs
   - subscription auto-renewal + the cron that expires stale subscriptions / downgrades `users.tier`
@@ -380,11 +397,27 @@ Admin (PT-verification review + withdrawal review), Content (public PT-course di
     `SELECT *` on `users`. PT sees `fullName`, `avatarUrl`, computed `age` (raw DOB discarded),
     body metrics, and stored daily targets — never email, phone, password, payment history, or tier.
 
+### Content / quest gotchas
+16. **Article slugs are immutable** (`content.service.ts`) — generated from the title at create
+    (NFD diacritic strip, đ→d, 4-hex suffix); editing the title via PATCH does **not** change the
+    slug. `view_count` is a fire-and-forget `UPDATE` outside any transaction (soft metric).
+17. **Quest VN-date handling** — `daily_mission_logs.date` is computed in JS via `getVnDateString()`
+    (`Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' })`). `WORKOUT_DONE` verifies the
+    session with a **single** `AT TIME ZONE 'Asia/Ho_Chi_Minh'` cast (performed_at is timestamptz);
+    `diary-lock` filters `food_logs.consumed_at` with the **double**-cast (see quirk #5). Quest
+    `created_at`/`updated_at` are plain `timestamp` (no tz) — the only non-timestamptz timestamps
+    outside the food/nutrition tables.
+18. **AI_SCAN is client-verified (temporary)** — `quest.service.ts → triggerQuest` accepts the
+    client's `referenceId` for `AI_SCAN` with only the DB daily cap (3/day) as a guard; the
+    `ai_food_scans` table doesn't exist yet (Scan module unbuilt). A `TODO` comment marks where
+    server-side verification must be added when Scan ships. `PT_VISIT` and `DAILY_SHARE` are
+    likewise client-verified (cap-only). `WORKOUT_DONE` is the only server-verified trigger.
+
 ---
 
 ## Migrations to date
 
-`0000`–`0012` applied in order:
+`0000`–`0014` applied in order:
 
 | # | Tag | What |
 |---|---|---|
@@ -401,6 +434,9 @@ Admin (PT-verification review + withdrawal review), Content (public PT-course di
 | 0010 | courses_enrollments | **PT P2** courses/modules/lessons/enrollments *(hand-written)* |
 | 0011 | pt_assignments | **PT P3** pt_assignments *(hand-written)* |
 | 0012 | pt_earnings_withdrawals | **PT P4** pt_earnings, withdrawals + backfill *(hand-written)* |
+| 0013 | articles | **content** articles, article_categories + 5 seeded categories *(hand-written)* |
+| 0014 | quest_system | **quest** quests (7 seeded), daily_mission_logs, user_points *(hand-written)* |
 
 Run `npm run db:migrate` to apply; `npm run seed:foods` and `npm run seed:exercises`
-to populate catalogs.
+to populate catalogs. (Quest catalog and article categories are seeded by their migrations,
+not separate seed scripts.)

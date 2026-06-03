@@ -550,6 +550,57 @@ const options: swaggerJsdoc.Options = {
             displayOrder: { type: 'integer', minimum: 0, maximum: 1000, default: 0 },
           },
         },
+
+        // ── Quests ──────────────────────────────────────────
+        TriggerQuestBody: {
+          type: 'object',
+          required: ['questId', 'date'],
+          properties: {
+            questId: {
+              type: 'string',
+              enum: ['AI_SCAN', 'WORKOUT_DONE', 'PT_VISIT', 'DAILY_SHARE'],
+              description:
+                'Client-triggerable quests only. DAILY_LOGIN, PERFECT_DIARY, and DISCIPLINE_MASTER are server-initiated and rejected here.',
+            },
+            date: { type: 'string', format: 'date', example: '2026-06-03' },
+            referenceId: {
+              type: 'string',
+              maxLength: 64,
+              description:
+                'Workout session id (WORKOUT_DONE, verified) or scan/PT/share id (audit only).',
+            },
+          },
+        },
+        DiaryLockBody: {
+          type: 'object',
+          required: ['date'],
+          properties: {
+            date: { type: 'string', format: 'date', example: '2026-06-03' },
+          },
+        },
+        CreateQuestBody: {
+          type: 'object',
+          required: ['id', 'title', 'description', 'pointsPerCompletion'],
+          properties: {
+            id: { type: 'string', pattern: '^[A-Z_]+$', example: 'TEST_QUEST' },
+            title: { type: 'string', minLength: 1, maxLength: 200 },
+            description: { type: 'string', minLength: 1 },
+            pointsPerCompletion: { type: 'integer', minimum: 1 },
+            maxCompletionsPerDay: { type: 'integer', minimum: 1, default: 1 },
+            isActive: { type: 'boolean', default: true },
+          },
+        },
+        UpdateQuestBody: {
+          type: 'object',
+          description: 'At least one field.',
+          properties: {
+            title: { type: 'string', minLength: 1, maxLength: 200 },
+            description: { type: 'string', minLength: 1 },
+            pointsPerCompletion: { type: 'integer', minimum: 1 },
+            maxCompletionsPerDay: { type: 'integer', minimum: 1 },
+            isActive: { type: 'boolean' },
+          },
+        },
       },
     },
     security: [{ BearerAuth: [] }],
@@ -568,6 +619,7 @@ const options: swaggerJsdoc.Options = {
       { name: 'PT Earnings', description: 'Earnings & withdrawal management' },
       { name: 'Admin', description: 'Admin operations' },
       { name: 'Content', description: 'Public content discovery' },
+      { name: 'Quests', description: 'Gamification: quests, points, leaderboard' },
     ],
   },
   apis: ['./src/routes/*.ts', './src/app.ts'],

@@ -9,6 +9,7 @@ import workoutRouter from './workout.routes';
 import ptRouter from './pt.routes';
 import adminRouter from './admin.routes';
 import contentRouter from './content.routes';
+import questRouter from './quest.routes';
 
 const router: Router = Router();
 
@@ -22,6 +23,8 @@ router.use('/workout', workoutRouter);
 router.use('/pt', ptRouter);
 router.use('/admin', adminRouter);
 router.use('/content', contentRouter);
+router.use('/quests', questRouter);
+// Admin quest routes (/admin/quests/*) are merged into adminRouter above.
 // router.use('/scan',      scanRouter);
 
 export default router;

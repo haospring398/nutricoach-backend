@@ -20,6 +20,12 @@ import {
   publishArticleHandler,
   updateArticleHandler,
 } from '../controllers/content.controller';
+import {
+  adminCreateQuestHandler,
+  adminLeaderboardHandler,
+  adminListQuestsHandler,
+  adminUpdateQuestHandler,
+} from '../controllers/quest.controller';
 
 const router: Router = Router();
 
@@ -595,5 +601,138 @@ router.post('/articles/:id/archive', archiveArticleHandler);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/categories', createCategoryHandler);
+
+// ── Quests (admin) ────────────────────────────────────────────
+// requireRole('admin') is already applied at the router level.
+
+/**
+ * @openapi
+ * /admin/quests:
+ *   get:
+ *     tags: [Quests]
+ *     summary: List the quest catalog (admin)
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All quests, ordered by id
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       403:
+ *         description: Forbidden (not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *   post:
+ *     tags: [Quests]
+ *     summary: Create a quest
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateQuestBody'
+ *     responses:
+ *       201:
+ *         description: Quest created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Quest id already exists (QUEST_ID_EXISTS)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/quests', adminListQuestsHandler);
+router.post('/quests', adminCreateQuestHandler);
+
+/**
+ * @openapi
+ * /admin/quests/leaderboard:
+ *   get:
+ *     tags: [Quests]
+ *     summary: Top users by total points
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         description: Max 100 (default 50)
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 50
+ *     responses:
+ *       200:
+ *         description: Ranked leaderboard
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       403:
+ *         description: Forbidden (not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/quests/leaderboard', adminLeaderboardHandler);
+
+/**
+ * @openapi
+ * /admin/quests/{id}:
+ *   patch:
+ *     tags: [Quests]
+ *     summary: Update a quest
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdateQuestBody'
+ *     responses:
+ *       200:
+ *         description: Quest updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Quest not found (QUEST_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch('/quests/:id', adminUpdateQuestHandler);
 
 export default router;

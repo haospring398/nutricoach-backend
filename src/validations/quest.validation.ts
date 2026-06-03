@@ -1,0 +1,87 @@
+import { z } from 'zod';
+
+const dateStringSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD');
+
+/** POST /quests/trigger — DAILY_LOGIN/PERFECT_DIARY/DISCIPLINE_MASTER are
+ *  server-initiated only and deliberately excluded from this enum. */
+export const triggerQuestSchema = z.object({
+  body: z.object({
+    questId: z.enum(
+      ['AI_SCAN', 'WORKOUT_DONE', 'PT_VISIT', 'DAILY_SHARE'] as const,
+      {
+        errorMap: () => ({
+          message:
+            'questId must be one of: AI_SCAN, WORKOUT_DONE, PT_VISIT, DAILY_SHARE',
+        }),
+      },
+    ),
+    date: dateStringSchema,
+    referenceId: z.string().max(64).optional(),
+  }),
+});
+
+/** POST /quests/diary-lock */
+export const diaryLockSchema = z.object({
+  body: z.object({
+    date: dateStringSchema,
+  }),
+});
+
+/** GET /quests/points — query params */
+export const getPointsSchema = z.object({
+  query: z.object({
+    page: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseInt(v, 10) : 1)),
+    limit: z
+      .string()
+      .optional()
+      .transform((v) => (v ? parseInt(v, 10) : 20)),
+  }),
+});
+
+/** Admin: POST /admin/quests */
+export const createQuestSchema = z.object({
+  body: z.object({
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Z_]+$/, 'id must be UPPER_SNAKE_CASE'),
+    title: z.string().min(1).max(200),
+    description: z.string().min(1),
+    pointsPerCompletion: z.number().int().positive(),
+    maxCompletionsPerDay: z.number().int().positive().default(1),
+    isActive: z.boolean().default(true),
+  }),
+});
+
+/** Admin: PATCH /admin/quests/:id */
+export const updateQuestSchema = z.object({
+  params: z.object({ id: z.string() }),
+  body: z.object({
+    title: z.string().min(1).max(200).optional(),
+    description: z.string().min(1).optional(),
+    pointsPerCompletion: z.number().int().positive().optional(),
+    maxCompletionsPerDay: z.number().int().positive().optional(),
+    isActive: z.boolean().optional(),
+  }),
+});
+
+/** Admin: GET /admin/quests/leaderboard */
+export const leaderboardSchema = z.object({
+  query: z.object({
+    limit: z
+      .string()
+      .optional()
+      .transform((v) => Math.min(v ? parseInt(v, 10) : 50, 100)),
+  }),
+});
+
+export type TriggerQuestInput = z.infer<typeof triggerQuestSchema>['body'];
+export type DiaryLockInput = z.infer<typeof diaryLockSchema>['body'];
+export type CreateQuestInput = z.infer<typeof createQuestSchema>['body'];
+export type UpdateQuestInput = z.infer<typeof updateQuestSchema>['body'];

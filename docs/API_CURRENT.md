@@ -24,7 +24,7 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented (by logical module): **Auth (10), Users (7), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (11 — 2 PT-course + 9 articles), Quests (8 — 4 user + 4 admin)** — **82 endpoints total** (+ `GET /health`)
+- Implemented (by logical module): **Auth (10), Users (9), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (11 — 2 PT-course + 9 articles), Quests (8 — 4 user + 4 admin)** — **84 endpoints total** (+ `GET /health`)
 - Planned: Scan (AI food scanning)
 
 > **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 17 handlers spanning three logical modules (PT review 7 + article/category write 6 + quest admin 4); the table above groups by logical module. PT is **18** (P1 4, P2 courses 7, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
@@ -390,6 +390,74 @@ All endpoints require auth.
   ```
   `bmiCategory` thresholds: `< 18.5 → "UNDERWEIGHT"`, `< 25 → "NORMAL"`, `< 30 → "OVERWEIGHT"`, otherwise `"OBESE"`.
 - Errors:
+  - `404 USER_METRICS_NOT_FOUND` — onboarding not completed
+  - `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/users/me/avatar
+
+- Auth: required
+- Request: `multipart/form-data` with a single file field `avatar`
+  - Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`
+  - Max size: 5 MB
+- Behavior: uploads to Cloudinary (folder `nutricoach/avatars`) with `public_id = avatar_${userId}` and `overwrite: true`, persists the resulting URL on `users.avatar_url`, and returns it. Re-uploading replaces the asset in place — the **same** URL is returned (stable URL, no orphaned assets).
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "avatarUrl": "https://res.cloudinary.com/<cloud>/image/upload/v1/nutricoach/avatars/avatar_<uuid>.jpg"
+    }
+  }
+  ```
+- Errors:
+  - `400 NO_FILE_PROVIDED` — no file in the `avatar` field
+  - `400 INVALID_FILE_TYPE` — MIME type not in the whitelist
+  - `400 FILE_TOO_LARGE` — file exceeds 5 MB
+  - `500 UPLOAD_FAILED` — Cloudinary upload failed
+
+---
+
+### PATCH /api/v1/users/me/metrics
+
+Post-onboarding update of body metrics. Merges the provided fields over the existing row and **re-computes all derived fields** (BMR, TDEE, daily calorie target, macros, BMI) on every call.
+
+- Auth: required
+- Request: body (unknown keys rejected by `.strict()`; at least one field required)
+  - `weightKg` (optional): number, 30–300
+  - `heightCm` (optional): integer, 100–250
+  - `activityLevel` (optional): enum `"SEDENTARY" | "LIGHT" | "MODERATE" | "ACTIVE" | "VERY_ACTIVE"`
+  - `goal` (optional): enum `"LOSE_WEIGHT" | "MAINTAIN" | "GAIN_WEIGHT" | "GAIN_MUSCLE"`
+  - `targetWeightKg` (optional): number, 30–300
+  - `dietaryRestrictions` (optional): string[] (each trimmed, non-empty)
+  - `allergies` (optional): string[] (each trimmed, non-empty)
+  - `gender` and `dateOfBirth` are **immutable** post-onboarding and rejected by `.strict()`.
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "weightKg": 70,
+      "heightCm": 175,
+      "activityLevel": "ACTIVE",
+      "goal": "GAIN_MUSCLE",
+      "targetWeightKg": 72,
+      "dietaryRestrictions": [],
+      "allergies": [],
+      "bmi": 22.9,
+      "bmiCategory": "NORMAL",
+      "bmr": 1649,
+      "tdee": 2845,
+      "dailyCalorieTarget": 3145,
+      "macros": { "proteinG": 236, "carbsG": 315, "fatG": 105 },
+      "updatedAt": "2026-06-04T10:30:00.000Z"
+    }
+  }
+  ```
+  `weightKg`/`targetWeightKg` are returned as numbers (the `numeric` columns are coerced). `bmi`/`bmiCategory` are computed for the response only (not stored). `bmiCategory` thresholds match `GET /users/me/metrics`.
+- Errors:
+  - `400 VALIDATION_ERROR` — empty body, unknown key, or a value out of range
   - `404 USER_METRICS_NOT_FOUND` — onboarding not completed
   - `500 INTERNAL_ERROR`
 
@@ -1752,6 +1820,9 @@ Top users by total points. Admin only.
 | INVALID_JSON | payment webhook (unparseable body) | 400 |
 | REFERENCE_REQUIRED | quests trigger (WORKOUT_DONE without referenceId) | 400 |
 | INVALID_REFERENCE | quests trigger (WORKOUT_DONE session not found / not yours / wrong date) | 400 |
+| NO_FILE_PROVIDED | users avatar upload | 400 |
+| INVALID_FILE_TYPE | users avatar upload | 400 |
+| FILE_TOO_LARGE | users avatar upload | 400 |
 | UNAUTHORIZED | auth middleware / authed controllers | 401 |
 | INVALID_TOKEN | auth middleware (bad JWT or user gone) / refresh | 401 |
 | ACCOUNT_DELETED | auth middleware (`deleted_at` not null) | 401 |
@@ -1791,5 +1862,6 @@ Top users by total points. Admin only.
 | CURRICULUM_INCOMPLETE | pt course publish (lessons missing youtubeVideoId); includes `details` array | 422 |
 | ARTICLE_INCOMPLETE | admin article publish (body too short) | 422 |
 | WEBHOOK_PROCESSING_ERROR | payment webhook (processing failed; PayOS retries) | 500 |
+| UPLOAD_FAILED | users avatar upload (Cloudinary) | 500 |
 | PAYOS_UNAVAILABLE | payment checkout (PayOS call failed) | 503 |
 | INTERNAL_ERROR | any (incl. middleware DB lookup, unknown errors) | 500 |

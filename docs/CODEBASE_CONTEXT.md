@@ -18,13 +18,17 @@ courses → students → earnings/withdrawals, end-to-end (Phases 1–4 all ship
 ```
 src/
 ├── app.ts                  Express app: helmet, cors, json (with rawBody verify
-│                           callback for PayOS), morgan, /health, mounts /api/v1
+│                           callback for PayOS), morgan, /health, Swagger UI at
+│                           /api-docs (+ /api-docs.json), mounts /api/v1
 ├── server.ts               HTTP server bootstrap + graceful shutdown
 │
 ├── config/
 │   ├── db.ts               Drizzle client over node-postgres Pool; exports `db`, `pool`
 │   ├── env.ts              Zod-validated env; exports `env`. ONLY place to read env
-│   └── redis.ts            ioredis client + `cache` JSON helper (get/set/del/exists)
+│   ├── redis.ts            ioredis client + `cache` JSON helper (get/set/del/exists)
+│   ├── cloudinary.ts       Cloudinary SDK singleton (avatar uploads); reads CLOUDINARY_*
+│   └── swagger.ts          swagger-jsdoc spec (OpenAPI 3.0); component schemas + tags.
+│                           Globs `./src/routes/*.ts` + app.ts for @openapi JSDoc.
 │
 ├── models/                 Drizzle table definitions (one file per domain)
 │   ├── index.ts            Re-exports every model (the Drizzle `schema` object)
@@ -37,19 +41,23 @@ src/
 │   ├── pt.model.ts              pt_verifications, pt_profiles
 │   ├── course.model.ts          courses, course_modules, course_lessons, enrollments
 │   ├── pt-assignment.model.ts   pt_assignments
-│   └── pt-earnings.model.ts     pt_earnings, withdrawals
+│   ├── pt-earnings.model.ts     pt_earnings, withdrawals
+│   ├── content.model.ts         articles, article_categories
+│   └── quest.model.ts           quests, daily_mission_logs, user_points
 │
 ├── controllers/            HTTP layer: parse req → call service → envelope response
 │   ├── auth.controller.ts        users.controller.ts        nutrition.controller.ts
 │   ├── foods.controller.ts       dashboard.controller.ts    payment.controller.ts
 │   ├── workout.controller.ts     pt.controller.ts           admin.controller.ts
 │   ├── course.controller.ts      pt-students.controller.ts  pt-earnings.controller.ts
+│   ├── content.controller.ts     quest.controller.ts
 │
 ├── services/               Business logic; no Express types
 │   ├── auth.service.ts           users.service.ts           nutrition.service.ts
 │   ├── foods.service.ts          dashboard.service.ts       payment.service.ts
 │   ├── workout.service.ts        pt.service.ts              course.service.ts
-│   ├── pt-students.service.ts    pt-earnings.service.ts
+│   ├── pt-students.service.ts    pt-earnings.service.ts     content.service.ts
+│   ├── quest.service.ts
 │   └── payment/
 │       ├── payos.client.ts       PayOS SDK singleton (throws at boot if creds missing)
 │       └── plans.ts              Hardcoded PRO_PLANS price table
@@ -59,20 +67,26 @@ src/
 │   ├── auth.routes.ts            users.routes.ts            nutrition.routes.ts
 │   ├── foods.routes.ts           dashboard.routes.ts        payment.routes.ts
 │   ├── workout.routes.ts         pt.routes.ts               admin.routes.ts
-│   └── content.routes.ts         (public PT-course discovery)
+│   ├── content.routes.ts         quest.routes.ts
+│   │   (admin.routes.ts also carries the /admin/articles, /admin/categories,
+│   │    and /admin/quests sub-routes; content.routes.ts carries PT-course
+│   │    discovery + article read endpoints)
 │
 ├── validations/            Zod schemas (one file per module, suffix .validation.ts)
 │   ├── auth.validation.ts        users.validation.ts        nutrition.validation.ts
 │   ├── foods.validation.ts       payment.validation.ts      workout.validation.ts
 │   ├── pt.validation.ts          course.validation.ts       pt-assignment.validation.ts
-│   └── pt-earnings.validation.ts
+│   ├── pt-earnings.validation.ts content.validation.ts      quest.validation.ts
 │
 ├── middlewares/
 │   ├── auth.middleware.ts       `authenticate` — verifies JWT, fetches user row,
 │   │                            rejects soft-deleted accounts; sets req.user
 │   ├── role.middleware.ts       `requireRole(...roles)` — 403 guard, after authenticate
-│   └── pt-access.middleware.ts  `requirePtAccessToStudent` — 404-not-403 enrollment
-│                                gate for /pt/students/:studentId/*; sets req.enrollment
+│   ├── pt-access.middleware.ts  `requirePtAccessToStudent` — 404-not-403 enrollment
+│   │                            gate for /pt/students/:studentId/*; sets req.enrollment
+│   └── upload.middleware.ts     `uploadSingle(field)` — multer memoryStorage, 5 MB +
+│                                MIME whitelist; stashes errors on req.uploadError
+│                                (no global error handler — controller converts them)
 │
 ├── lib/                    Shared utilities
 │   ├── api-error.ts        `ApiError(status, code, message)` base class
@@ -81,24 +95,32 @@ src/
 │   │                       incl. PT verification + withdrawal approved/rejected emails
 │   ├── hash.ts             bcrypt hash/compare (cost 12)
 │   ├── jwt.ts              access/refresh token sign + verify (HS256)
+│   ├── slug.ts             slugify() (VN diacritic strip + random suffix) +
+│   │                       computeReadingTimeMin() — used by the content module
 │   └── user-presenter.ts   role/tier lowercase-DB → uppercase-API mappers
 │
 ├── db/
 │   ├── migrate.ts          Migration runner (`npm run db:migrate`)
-│   ├── migrations/         0000–0012 .sql files + meta/ (drizzle journal+snapshots)
+│   ├── migrations/         0000–0014 .sql files + meta/ (drizzle journal+snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts       CSV → food_items  (`npm run seed:foods`)
 │       └── exercises.seed.ts   JSON → exercises  (`npm run seed:exercises`)
 │
 └── types/
-    └── express.d.ts        Augments Express Request with `user`, `rawBody`, `enrollment`
+    └── express.d.ts        Augments Express Request with `user`, `rawBody`,
+                            `enrollment`, `uploadError`
 ```
 
 Seed data lives outside `src/`: `data/seed/vn_food.csv`, `vn_dishes.csv`, `exercises.json`.
 
-**Untracked files (present in the tree but NOT git-managed, not part of any module):**
-`Gemini.md` and `src/config/swagger.ts`. Origin unknown; nothing imports `swagger.ts`.
-Leave them alone unless explicitly asked.
+**Swagger is live:** `src/config/swagger.ts` is imported by `app.ts` and served at
+`/api-docs` (UI) + `/api-docs.json` (raw spec). Every route file carries `@openapi`
+JSDoc; `swagger-jsdoc` + `swagger-ui-express` are in `package.json`. Note the `apis`
+glob targets `./src/routes/*.ts` — fine under tsx/dev; a compiled `dist/` run would
+need `./dist/routes/*.js` added.
+
+**Untracked scratch file:** `Gemini.md` (a prior agent's notes) sits in the repo root,
+not git-managed and not part of any module. Leave it alone unless asked.
 
 ---
 
@@ -163,7 +185,7 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | Mount | Module | Endpoints | List |
 |---|---|---:|---|
 | `/auth` | auth | 10 | register, login, refresh, logout, logout-all, me, verify-email, resend-verification, forgot-password, reset-password |
-| `/users` | users | 7 | me (GET/PATCH/DELETE), me/onboarding, me/metrics, me/change-password, me/pt-assignments |
+| `/users` | users | 9 | me (GET/PATCH/DELETE), me/onboarding, me/metrics (GET + **PATCH** — update + recompute BMR/TDEE/macros/BMI), me/change-password, me/pt-assignments, **me/avatar (POST — Cloudinary upload)** |
 | `/nutrition` | nutrition | 5 | food-logs (POST/GET/PATCH/DELETE), summary/daily |
 | `/foods` | foods | 3 | search, categories, :id |
 | `/dashboard` | dashboard | 1 | user |
@@ -174,11 +196,11 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | `/content` | content | 5 | discover/pt-courses, pt-courses/:id, **articles (list), categories (list), articles/:slug** |
 | `/quests` | quest | 4 | daily, trigger, diary-lock, points |
 
-**82 endpoints total** (+ `/health`). The `/admin` mount physically carries 17 handlers spanning
+**84 endpoints total** (+ `/health`). The `/admin` mount physically carries 17 handlers spanning
 three logical modules: PT review (7), Content/articles write (6), Quests admin (4). By logical
-module the split is **Auth 10 · Users 7 · Nutrition 5 · Foods 3 · Dashboard 1 · Payment 5 ·
+module the split is **Auth 10 · Users 9 · Nutrition 5 · Foods 3 · Dashboard 1 · Payment 5 ·
 Workout 7 · PT 18 · PT-review/admin 7 · Content 11 (2 PT-course + 9 articles) · Quests 8
-(4 user + 4 admin)** = 82.
+(4 user + 4 admin)** = 84. (Users grew 7 → 9 with `PATCH /me/metrics` and `POST /me/avatar`.)
 
 ### Auth requirements per mount
 - `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
@@ -255,8 +277,12 @@ stored UPPERCASE, validated by Zod allow-lists.
   anything else → `500 INTERNAL_ERROR`. Domain errors are thrown as `ApiError`
   subclasses (`AuthError`, `UserError`, `NutritionError`, `FoodsError`, `PaymentError`,
   `WorkoutError`, `DashboardError`, `PtError`, `CourseError`, `PtStudentsError`,
-  `PtEarningsError`). Middlewares that run before a controller (auth / role / pt-access)
-  respond directly with the envelope instead of throwing.
+  `PtEarningsError`, `ContentError`, `QuestError`). Middlewares that run before a
+  controller (auth / role / pt-access) respond directly with the envelope instead of
+  throwing. The **one exception is `uploadSingle`** (multer): it can't respond directly
+  (no global handler) so it **stashes** any error on `req.uploadError` and the avatar
+  controller converts it (`LIMIT_FILE_SIZE → FILE_TOO_LARGE`, fileFilter `ApiError →
+  INVALID_FILE_TYPE`).
 - **MVC file naming** — `*.model.ts` (Drizzle tables), `*.service.ts` (logic),
   `*.controller.ts` (HTTP), `*.routes.ts` (Express router), `*.validation.ts` (Zod).
   One per module, all flat in their layer folder. (Exception: `services/payment/`
@@ -276,8 +302,8 @@ stored UPPERCASE, validated by Zod allow-lists.
   `Idempotency-Key` header, cache the response in Redis (24h TTL), and have a DB unique
   constraint as the safety net if Redis misses. First call → 201, idempotent replay → 200.
 - **Migrations** — applied with `npm run db:migrate`. Never auto-run migrate; the human
-  applies it. The PT-marketplace migrations (`0010`–`0012`) were **hand-written** (not
-  drizzle-generated) and required manual `meta/_journal.json` entries.
+  applies it. Migrations `0010`–`0014` were **hand-written** (not drizzle-generated) and
+  required manual `meta/_journal.json` entries.
 
 ### Middlewares (`src/middlewares/`)
 - **`authenticate`** (`auth.middleware.ts`) — JWT + user-row load + soft-delete check; sets `req.user`.
@@ -288,6 +314,9 @@ stored UPPERCASE, validated by Zod allow-lists.
   STUDENT_NOT_FOUND` for every failure mode** (invalid UUID, no enrollment, refunded, unknown student) so a
   PT can't probe for other users' existence. Side effect: attaches the enrollment row to `req.enrollment`
   (typed in `types/express.d.ts`) so the handler doesn't re-query.
+- **`uploadSingle(field)`** (`upload.middleware.ts`) — multer `memoryStorage`, 5 MB limit, MIME whitelist
+  (`image/jpeg|png|webp`). Used by `POST /users/me/avatar`. Does **not** respond or `next(err)` — it parks
+  any error on `req.uploadError` for the controller to convert (no global error handler).
 
 ### Payment webhook touchpoints (`payment.service.ts` → `handlePayosWebhook`)
 On a verified `PAID` event, inside **one DB transaction**, branches on `transaction.productType`:
@@ -301,12 +330,14 @@ On a verified `PAID` event, inside **one DB transaction**, branches on `transact
 
 ## 6. Implemented vs planned
 
-**Implemented (11 mounted modules):** Auth, Users, Nutrition, Foods, Dashboard, Payment
+**Implemented (11 mounted modules):** Auth, Users (incl. **`PATCH /me/metrics`** recompute
+and **`POST /me/avatar`** Cloudinary upload), Nutrition, Foods, Dashboard, Payment
 (PRO subscriptions **+ PT-course purchases**), Workout (library + session logging),
 **PT (Phases 1–4 complete: verification → courses → students → earnings/withdrawals)**,
 Admin (PT-verification review + withdrawal review + article/category write + quest admin),
 **Content (PT-course discovery + articles/categories — migration 0013)**,
 **Quests (gamification: daily quests, points, leaderboard — migration 0014)**.
+Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 84 endpoints annotated).
 
 **Planned / not built:**
 - **Scan** — AI food scanning (OpenAI Vision). `openai` is installed but unused. Note: the
@@ -360,15 +391,22 @@ Admin (PT-verification review + withdrawal review + article/category write + que
 7. **`db:generate` npm script is wrong** — `package.json` has `"drizzle-kit generate"`
    but drizzle-kit 0.20.18 needs the `generate:pg` subcommand. Run
    `npx drizzle-kit generate:pg` directly. It prompts interactively on column renames;
-   new tables/columns/indexes generate without prompts. **Migrations `0010`–`0012` were
+   new tables/columns/indexes generate without prompts. **Migrations `0010`–`0014` were
    written by hand** (faster than fighting the interactive prompts for partial uniques +
-   CHECKs) — keep that pattern for new PT-marketplace tables.
+   CHECKs + seed INSERTs) — keep that pattern for new module tables.
 8. **Hand-written migrations need a journal entry** — `meta/_journal.json` drives
-   `db:migrate`. Migrations `0006` and `0010`–`0012` were hand-written and required
-   manually-added journal entries (idx + tag + a synthetic `when` timestamp).
+   `db:migrate`. Migrations `0006` and `0010`–`0014` were hand-written and required
+   manually-added journal entries (idx + tag + a synthetic `when` timestamp). The `tag`
+   **must equal the `.sql` filename stem** (e.g. `0014_quest_system`), not a bare name —
+   the migrator resolves each entry by `<tag>.sql`.
 9. **Boot-time required env** — `JWT_SECRET` + `JWT_REFRESH_SECRET` (≥32 chars, must
-   differ), `RESEND_API_KEY`, and `PAYOS_CLIENT_ID`/`PAYOS_API_KEY`/`PAYOS_CHECKSUM_KEY`
-   (`payos.client.ts` throws at import if absent). Placeholders are fine in dev.
+   differ), `RESEND_API_KEY`, and `CLOUDINARY_CLOUD_NAME`/`CLOUDINARY_API_KEY`/
+   `CLOUDINARY_API_SECRET` are **`.min(1)` in the Zod schema** — `env.ts` exits the process
+   at boot if any is missing. ⚠️ **Inconsistency:** PayOS creds (`PAYOS_*`) are `.optional()`
+   in the schema and guarded *at import* by `payos.client.ts` (throws if absent); Cloudinary
+   creds are guarded *by the schema* instead. So a missing Cloudinary var fails boot
+   everywhere, whereas a missing PayOS var only fails when the payment client loads.
+   Placeholders are fine in dev for all of them.
 10. **PayOS SDK is v1.x** (`@payos/node` 1.0.10) — uses `createPaymentLink()` and the
     **synchronous** `verifyPaymentWebhookData()`, not the v2 `paymentRequests` /
     `webhooks` namespaces.
@@ -412,6 +450,20 @@ Admin (PT-verification review + withdrawal review + article/category write + que
     `ai_food_scans` table doesn't exist yet (Scan module unbuilt). A `TODO` comment marks where
     server-side verification must be added when Scan ships. `PT_VISIT` and `DAILY_SHARE` are
     likewise client-verified (cap-only). `WORKOUT_DONE` is the only server-verified trigger.
+
+### Users / avatar gotchas
+19. **`numeric(5,2)` columns round-trip as strings** — `user_metrics.weight_kg` /
+    `target_weight_kg` (and any `numeric` column) come back from pg as **strings** and Drizzle
+    expects **strings on write**. Coerce: `Number(...)` on read, `String(...)` on write. The
+    onboarding + `PATCH /me/metrics` paths both do this; `PATCH /me/metrics` reuses the shared
+    onboarding helpers (`ageFromDob`/`calculateBmr`/`calculateTdee`/`calculateDailyCalorieTarget`/
+    `calculateMacros`/`bmiCategoryFor`) and recomputes **all** derived fields every call. `bmi`/
+    `bmiCategory` are response-only (not stored). `gender` + `dateOfBirth` are immutable post-onboarding.
+20. **Avatar upload is in-place + orphan-free** — `users.service.ts → uploadAvatar` streams the
+    multer buffer to Cloudinary with `public_id: avatar_${userId}` + `overwrite: true` (stable URL,
+    re-upload returns the **same** URL, zero orphaned assets), folder `nutricoach/avatars`, transform
+    `400×400 fill/face, quality:auto, format:auto` (**`format`, not `fetch_format`**). No migration —
+    `users.avatar_url` exists since `0000`. A Cloudinary failure → `500 UPLOAD_FAILED`.
 
 ---
 

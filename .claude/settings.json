@@ -6,7 +6,10 @@
       "Bash(grep -iE \"^cloudinary$|^multer$\")",
       "Bash(node -e \"try{require\\('multer'\\);console.log\\('multer OK'\\)}catch{console.log\\('multer MISSING'\\)}\")",
       "Bash(node -e \"try{require\\('cloudinary'\\);console.log\\('cloudinary OK'\\)}catch{console.log\\('cloudinary MISSING'\\)}\")",
-      "Bash(node -e \"console.log\\(require\\('multer/package.json'\\).version\\)\")"
+      "Bash(node -e \"console.log\\(require\\('multer/package.json'\\).version\\)\")",
+      "Bash(DB_SSL=true npx tsx -e ' *)",
+      "Bash(DB_SSL='' npx tsx -e ' *)",
+      "Bash(env -u DB_SSL npx tsx -e ' *)"
     ]
   }
 }

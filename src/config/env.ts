@@ -22,6 +22,12 @@ const envSchema = z.object({
   DB_USER: z.string().min(1, 'DB_USER is required'),
   DB_PASSWORD: z.string().min(1, 'DB_PASSWORD is required'),
   DB_NAME: z.string().min(1, 'DB_NAME is required'),
+  // NB: z.coerce.boolean() is wrong here — Boolean('false') === true. Parse the
+  // string explicitly so DB_SSL=false (and an absent var) both resolve to false.
+  DB_SSL: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 
   // Redis
   REDIS_URL: z.string().url('REDIS_URL must be a valid URL (redis://host:port)'),

@@ -9,24 +9,17 @@ export const pool = new Pool({
   user: env.DB_USER,
   password: env.DB_PASSWORD,
   database: env.DB_NAME,
-
-  // Pool tuning
-  max: 20,
-  min: 5,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
-
-  // Statement / query timeouts (prevent runaway queries)
+  max: 5,
+  min: 0,
+  idleTimeoutMillis: 4 * 60 * 1000,
+  connectionTimeoutMillis: 15_000,
   statement_timeout: 30_000,
   query_timeout: 30_000,
-
-  ssl: env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : undefined,
+  ssl: env.DB_SSL ? { rejectUnauthorized: false } : undefined,
 });
 
-// Unexpected idle-client error → crash fast so the process-manager restarts
 pool.on('error', (err) => {
-  console.error('❌ Unexpected PostgreSQL pool error:', err.message);
-  process.exit(1);
+  console.error('⚠️ PostgreSQL pool error:', err.message);
 });
 
 export const db = drizzle(pool, {

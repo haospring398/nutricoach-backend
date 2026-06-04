@@ -3,6 +3,7 @@ import { db } from '../config/db';
 import { refreshTokens, users } from '../models/user.model';
 import { userMetrics } from '../models/user-metrics.model';
 import { ApiError } from '../lib/api-error';
+import { cloudinary } from '../config/cloudinary';
 import { comparePassword, hashPassword } from '../lib/hash';
 import {
   toPublicRole,
@@ -387,4 +388,57 @@ export const deleteMe = async (
     .where(eq(users.id, userId));
 
   await db.delete(refreshTokens).where(eq(refreshTokens.userId, userId));
+};
+
+/**
+ * Uploads an avatar to Cloudinary (overwriting the user's existing one via a
+ * stable public_id), persists the resulting URL, and returns it.
+ */
+export const uploadAvatar = async (
+  userId: string,
+  file: Express.Multer.File,
+): Promise<string> => {
+  let secureUrl: string;
+
+  try {
+    secureUrl = await new Promise<string>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'nutricoach/avatars',
+          public_id: `avatar_${userId}`,
+          overwrite: true,
+          resource_type: 'image',
+          transformation: [
+            {
+              width: 400,
+              height: 400,
+              crop: 'fill',
+              gravity: 'face',
+              quality: 'auto',
+              // Patch §1: use `format: 'auto'`, NOT `fetch_format: 'auto'`.
+              format: 'auto',
+            },
+          ],
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject(error ?? new Error('Empty Cloudinary response'));
+            return;
+          }
+          resolve(result.secure_url);
+        },
+      );
+      stream.end(file.buffer);
+    });
+  } catch {
+    throw new ApiError(500, 'UPLOAD_FAILED', 'Failed to upload avatar image');
+  }
+
+  // users.updatedAt has no $onUpdate / DB trigger — set it explicitly.
+  await db
+    .update(users)
+    .set({ avatarUrl: secureUrl, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+
+  return secureUrl;
 };

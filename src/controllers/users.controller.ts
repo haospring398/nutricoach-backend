@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import multer from 'multer';
 import { ZodError } from 'zod';
 import { ApiError } from '../lib/api-error';
 import {
@@ -8,6 +9,7 @@ import {
   getMe,
   getMyMetrics,
   updateMe,
+  uploadAvatar as uploadAvatarService,
 } from '../services/users.service';
 import {
   changePasswordSchema,
@@ -136,6 +138,48 @@ export const deleteMyAccount = async (
     const input = deleteMeSchema.parse(req.body);
     await deleteMe(userId, input);
     res.status(204).end();
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const uploadAvatar = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = requireUser(req, res);
+    if (!userId) return;
+
+    // The upload middleware stashes any multer error here instead of
+    // forwarding it (no global error handler). Convert it before inspecting
+    // req.file.
+    const uploadError = (req as Request & { uploadError?: unknown })
+      .uploadError;
+    if (uploadError) {
+      if (
+        uploadError instanceof multer.MulterError &&
+        uploadError.code === 'LIMIT_FILE_SIZE'
+      ) {
+        throw new ApiError(
+          400,
+          'FILE_TOO_LARGE',
+          'Avatar must be 5 MB or smaller',
+        );
+      }
+      throw uploadError; // ApiError (INVALID_FILE_TYPE) or an unexpected error
+    }
+
+    if (!req.file) {
+      throw new ApiError(
+        400,
+        'NO_FILE_PROVIDED',
+        'No avatar file provided in field "avatar"',
+      );
+    }
+
+    const avatarUrl = await uploadAvatarService(userId, req.file);
+    sendSuccess(res, 200, { avatarUrl });
   } catch (err) {
     handleError(res, err);
   }

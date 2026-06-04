@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(npx tsx -e ' *)",
-      "Bash(node -e \"console.log\\('drizzle-orm', require\\('drizzle-orm/package.json'\\).version\\)\")"
+      "Bash(node -e \"console.log\\('drizzle-orm', require\\('drizzle-orm/package.json'\\).version\\)\")",
+      "Bash(grep -iE \"^cloudinary$|^multer$\")",
+      "Bash(node -e \"try{require\\('multer'\\);console.log\\('multer OK'\\)}catch{console.log\\('multer MISSING'\\)}\")",
+      "Bash(node -e \"try{require\\('cloudinary'\\);console.log\\('cloudinary OK'\\)}catch{console.log\\('cloudinary MISSING'\\)}\")",
+      "Bash(node -e \"console.log\\(require\\('multer/package.json'\\).version\\)\")"
     ]
   }
 }

@@ -38,6 +38,13 @@ const envSchema = z.object({
   PAYOS_API_KEY: z.string().optional(),
   PAYOS_CHECKSUM_KEY: z.string().optional(),
 
+  // Cloudinary (avatar uploads) — boot-required (per avatar-upload-spec §4.2).
+  // Non-optional .min(1) is the credential guard: env.ts exits at boot if any
+  // is missing, so cloudinary.ts can read them unconditionally.
+  CLOUDINARY_CLOUD_NAME: z.string().min(1),
+  CLOUDINARY_API_KEY: z.string().min(1),
+  CLOUDINARY_API_SECRET: z.string().min(1),
+
   // Storage
   STORAGE_TYPE: z.enum(['local', 's3', 'r2']).default('local'),
   STORAGE_PATH: z.string().default('./uploads'),

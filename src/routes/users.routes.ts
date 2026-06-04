@@ -7,8 +7,10 @@ import {
   myMetrics,
   onboarding,
   patchMe,
+  uploadAvatar,
 } from '../controllers/users.controller';
 import { listMyAssignmentsHandler } from '../controllers/pt-students.controller';
+import { uploadSingle } from '../middlewares/upload.middleware';
 
 const router: Router = Router();
 
@@ -266,5 +268,68 @@ router.delete('/me', deleteMyAccount);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/me/pt-assignments', listMyAssignmentsHandler);
+
+/**
+ * @openapi
+ * /users/me/avatar:
+ *   post:
+ *     tags: [Users]
+ *     summary: Upload or replace the current user's avatar
+ *     description: >
+ *       Uploads an avatar image (JPEG, PNG, or WebP, max 5 MB) to Cloudinary,
+ *       overwriting any existing avatar via a stable public_id, and returns the
+ *       stored URL.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [avatar]
+ *             properties:
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image file (image/jpeg, image/png, image/webp)
+ *     responses:
+ *       200:
+ *         description: Avatar uploaded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     avatarUrl:
+ *                       type: string
+ *                       example: https://res.cloudinary.com/<cloud>/image/upload/v1/nutricoach/avatars/avatar_<uuid>.jpg
+ *       400:
+ *         description: INVALID_FILE_TYPE | FILE_TOO_LARGE | NO_FILE_PROVIDED
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: UNAUTHORIZED | INVALID_TOKEN | ACCOUNT_DELETED
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: UPLOAD_FAILED | INTERNAL_ERROR
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+// `authenticate` is applied router-wide (router.use above), so it runs before
+// uploadSingle — auth fails before any file is parsed. Order: authenticate →
+// uploadSingle('avatar') → handler.
+router.post('/me/avatar', uploadSingle('avatar'), uploadAvatar);
 
 export default router;

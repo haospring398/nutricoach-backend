@@ -7,6 +7,7 @@ import {
   myMetrics,
   onboarding,
   patchMe,
+  updateMyMetrics,
   uploadAvatar,
 } from '../controllers/users.controller';
 import { listMyAssignmentsHandler } from '../controllers/pt-students.controller';
@@ -149,6 +150,62 @@ router.post('/me/onboarding', onboarding);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/me/metrics', myMetrics);
+
+/**
+ * @openapi
+ * /users/me/metrics:
+ *   patch:
+ *     tags: [Users]
+ *     summary: Update body metrics post-onboarding (re-computes BMR/TDEE/macros/BMI)
+ *     description: >
+ *       Partial update of the user_metrics row. gender and dateOfBirth are
+ *       immutable and rejected. All derived fields (BMR, TDEE, daily calorie
+ *       target, macros, BMI) are recomputed every call.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             minProperties: 1
+ *             additionalProperties: false
+ *             properties:
+ *               weightKg: { type: number, minimum: 30, maximum: 300 }
+ *               heightCm: { type: integer, minimum: 100, maximum: 250 }
+ *               activityLevel: { type: string, enum: [SEDENTARY, LIGHT, MODERATE, ACTIVE, VERY_ACTIVE] }
+ *               goal: { type: string, enum: [LOSE_WEIGHT, MAINTAIN, GAIN_WEIGHT, GAIN_MUSCLE] }
+ *               targetWeightKg: { type: number, minimum: 30, maximum: 300 }
+ *               dietaryRestrictions: { type: array, items: { type: string } }
+ *               allergies: { type: array, items: { type: string } }
+ *     responses:
+ *       200:
+ *         description: Updated metrics with recomputed targets, BMI and category
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error (empty body, unknown key, or out-of-range)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: USER_METRICS_NOT_FOUND (onboarding not completed)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: INTERNAL_ERROR
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch('/me/metrics', updateMyMetrics);
 
 /**
  * @openapi

@@ -9,6 +9,7 @@ import {
   getMe,
   getMyMetrics,
   updateMe,
+  updateMetrics as updateMetricsService,
   uploadAvatar as uploadAvatarService,
 } from '../services/users.service';
 import {
@@ -16,6 +17,7 @@ import {
   deleteMeSchema,
   onboardingSchema,
   updateMeSchema,
+  updateMetricsSchema,
 } from '../validations/users.validation';
 
 const sendError = (
@@ -107,6 +109,21 @@ export const myMetrics = async (
     const userId = requireUser(req, res);
     if (!userId) return;
     const data = await getMyMetrics(userId);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const updateMyMetrics = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const body = updateMetricsSchema.parse(req.body);
+    const data = await updateMetricsService(userId, body);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

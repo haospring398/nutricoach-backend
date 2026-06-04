@@ -16,6 +16,7 @@ import type {
   DeleteMeInput,
   OnboardingInput,
   UpdateMeInput,
+  UpdateMetricsInput,
 } from '../validations/users.validation';
 
 export class UserError extends ApiError {}
@@ -74,6 +75,23 @@ export interface MyMetricsResult {
   tdee: number;
   dailyCalorieTarget: number;
   macros: Macros;
+}
+
+export interface UpdateMetricsResult {
+  weightKg: number;
+  heightCm: number;
+  activityLevel: OnboardingInput['activityLevel'];
+  goal: OnboardingInput['goal'];
+  targetWeightKg: number | null;
+  dietaryRestrictions: string[];
+  allergies: string[];
+  bmi: number;
+  bmiCategory: MyMetricsResult['bmiCategory'];
+  bmr: number;
+  tdee: number;
+  dailyCalorieTarget: number;
+  macros: Macros;
+  updatedAt: Date;
 }
 
 const ACTIVITY_MULTIPLIER: Record<OnboardingInput['activityLevel'], number> = {
@@ -331,6 +349,94 @@ export const getMyMetrics = async (
       carbsG: row.carbsG,
       fatG: row.fatG,
     },
+  };
+};
+
+export const updateMetrics = async (
+  userId: string,
+  data: UpdateMetricsInput,
+): Promise<UpdateMetricsResult> => {
+  const [existing] = await db
+    .select()
+    .from(userMetrics)
+    .where(eq(userMetrics.userId, userId))
+    .limit(1);
+
+  if (!existing) {
+    throw new UserError(
+      404,
+      'USER_METRICS_NOT_FOUND',
+      'User metrics not found. Complete onboarding first.',
+    );
+  }
+
+  // Merge patch over existing. numeric columns arrive from pg as strings.
+  const weightKg = data.weightKg ?? Number(existing.weightKg);
+  const heightCm = data.heightCm ?? existing.heightCm;
+  const activityLevel = data.activityLevel ?? existing.activityLevel;
+  const goal = data.goal ?? existing.goal;
+  const targetWeightKg =
+    data.targetWeightKg !== undefined
+      ? data.targetWeightKg
+      : existing.targetWeightKg === null
+        ? null
+        : Number(existing.targetWeightKg);
+  const dietaryRestrictions =
+    data.dietaryRestrictions ?? existing.dietaryRestrictions;
+  const allergies = data.allergies ?? existing.allergies;
+
+  // Recompute every derived field using the shared onboarding helpers
+  // (gender + dateOfBirth are immutable, read from the existing row).
+  const age = ageFromDob(existing.dateOfBirth);
+  const bmr = calculateBmr(existing.gender, weightKg, heightCm, age);
+  const tdee = calculateTdee(bmr, activityLevel);
+  const dailyCalorieTarget = calculateDailyCalorieTarget(tdee, goal);
+  const macros = calculateMacros(dailyCalorieTarget);
+
+  const heightM = heightCm / 100;
+  const bmi = Math.round((weightKg / (heightM * heightM)) * 10) / 10;
+
+  const [updated] = await db
+    .update(userMetrics)
+    .set({
+      weightKg: String(weightKg),
+      heightCm,
+      activityLevel,
+      goal,
+      targetWeightKg: targetWeightKg === null ? null : String(targetWeightKg),
+      dietaryRestrictions,
+      allergies,
+      bmr,
+      tdee,
+      dailyCalorieTarget,
+      proteinG: macros.proteinG,
+      carbsG: macros.carbsG,
+      fatG: macros.fatG,
+      updatedAt: new Date(),
+    })
+    .where(eq(userMetrics.userId, userId))
+    .returning();
+
+  return {
+    weightKg: Number(updated!.weightKg),
+    heightCm: updated!.heightCm,
+    activityLevel: updated!.activityLevel,
+    goal: updated!.goal,
+    targetWeightKg:
+      updated!.targetWeightKg === null ? null : Number(updated!.targetWeightKg),
+    dietaryRestrictions: updated!.dietaryRestrictions,
+    allergies: updated!.allergies,
+    bmi,
+    bmiCategory: bmiCategoryFor(bmi),
+    bmr: updated!.bmr,
+    tdee: updated!.tdee,
+    dailyCalorieTarget: updated!.dailyCalorieTarget,
+    macros: {
+      proteinG: updated!.proteinG,
+      carbsG: updated!.carbsG,
+      fatG: updated!.fatG,
+    },
+    updatedAt: updated!.updatedAt,
   };
 };
 

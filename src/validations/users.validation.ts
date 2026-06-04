@@ -56,6 +56,25 @@ export const onboardingSchema = z
   })
   .strict();
 
+// Post-onboarding metrics update. gender + dateOfBirth are immutable and
+// intentionally excluded — `.strict()` rejects them.
+export const updateMetricsSchema = z
+  .object({
+    weightKg: z.number().min(30).max(300).optional(),
+    heightCm: z.number().int().min(100).max(250).optional(),
+    activityLevel: z
+      .enum(['SEDENTARY', 'LIGHT', 'MODERATE', 'ACTIVE', 'VERY_ACTIVE'])
+      .optional(),
+    goal: z.enum(['LOSE_WEIGHT', 'MAINTAIN', 'GAIN_WEIGHT', 'GAIN_MUSCLE']).optional(),
+    targetWeightKg: z.number().min(30).max(300).optional(),
+    dietaryRestrictions: z.array(z.string().trim().min(1)).optional(),
+    allergies: z.array(z.string().trim().min(1)).optional(),
+  })
+  .strict()
+  .refine((d) => Object.keys(d).length > 0, {
+    message: 'At least one field must be provided',
+  });
+
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, 'currentPassword is required'),
@@ -77,5 +96,6 @@ export const deleteMeSchema = z
 
 export type UpdateMeInput = z.infer<typeof updateMeSchema>;
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
+export type UpdateMetricsInput = z.infer<typeof updateMetricsSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type DeleteMeInput = z.infer<typeof deleteMeSchema>;

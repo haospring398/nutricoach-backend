@@ -4,6 +4,7 @@ import { ApiError } from '../lib/api-error';
 import {
   createFoodLog,
   deleteFoodLog,
+  generateMealPlan as generateMealPlanService,
   getDailySummary,
   listFoodLogsByDate,
   updateFoodLog,
@@ -125,6 +126,20 @@ export const dailySummary = async (
     if (!userId) return;
     const { date } = dateQuerySchema.parse(req.query);
     const data = await getDailySummary(userId, date);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const generateMealPlan = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const data = await generateMealPlanService(userId);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

@@ -5,6 +5,7 @@ import { users } from '../models/user.model';
 import { userMetrics } from '../models/user-metrics.model';
 import { foodLogs } from '../models/food-log.model';
 import { workoutSessions } from '../models/workout.model';
+import { aiFoodScans } from '../models/ai-food-scan.model';
 import {
   dailyMissionLogs,
   quests,
@@ -230,13 +231,24 @@ export async function triggerQuest(
   }
 
   if (questId === 'AI_SCAN') {
-    // TEMPORARY: the ai_food_scans table does not exist yet (Scan module not
-    // built — see CODEBASE_CONTEXT §6). Server-side verification of referenceId
-    // is deferred. Until the scan module ships, accept the client claim; the
-    // DB cap (completedCount < 3) is the only guard.
-    // TODO when scan ships: verify
-    //   SELECT 1 FROM ai_food_scans WHERE id = referenceId AND user_id = userId
-    //   AND (created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh')::date = date::date
+    // Server-verified: the referenceId must be a real scan owned by this user
+    // (the scan service passes the freshly-inserted ai_food_scans.id). The DB
+    // cap (completedCount < 3) remains the secondary guard.
+    if (referenceId) {
+      const [scan] = await db
+        .select({ id: aiFoodScans.id })
+        .from(aiFoodScans)
+        .where(
+          and(eq(aiFoodScans.id, referenceId), eq(aiFoodScans.userId, userId)),
+        );
+      if (!scan) {
+        throw new QuestError(
+          400,
+          'INVALID_REFERENCE',
+          'Scan record not found or does not belong to this user',
+        );
+      }
+    }
   }
 
   if (questId === 'PT_VISIT') {

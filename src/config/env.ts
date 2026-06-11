@@ -51,6 +51,11 @@ const envSchema = z.object({
   CLOUDINARY_API_KEY: z.string().min(1),
   CLOUDINARY_API_SECRET: z.string().min(1),
 
+  // AI microservice (food scan + meal-plan generation) — boot-required so the
+  // server fails fast if the integration is misconfigured (quirk #9).
+  AI_SERVICE_URL: z.string().url(),
+  AI_SERVICE_SECRET: z.string().min(16),
+
   // Storage
   STORAGE_TYPE: z.enum(['local', 's3', 'r2']).default('local'),
   STORAGE_PATH: z.string().default('./uploads'),

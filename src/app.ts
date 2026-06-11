@@ -31,6 +31,7 @@ app.use(
   }),
 );
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '12mb' }));
 
 // ── Logging ──────────────────────────────────────────────────
 if (env.NODE_ENV !== 'test') {

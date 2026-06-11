@@ -1,8 +1,10 @@
 import { and, eq, sql } from 'drizzle-orm';
 import { db } from '../config/db';
+import { env } from '../config/env';
 import { foodLogs, type FoodLog } from '../models/food-log.model';
 import { foodItems } from '../models/food-item.model';
 import { userMetrics } from '../models/user-metrics.model';
+import { users } from '../models/user.model';
 import { ApiError } from '../lib/api-error';
 import type {
   CreateFoodLogInput,
@@ -420,4 +422,73 @@ export const getDailySummary = async (
     progressPercent,
     meals,
   };
+};
+
+// ── AI meal-plan generation (synchronous; stateless — Decision A1) ─────
+// Loads the caller's metrics, maps them to the AI service's /plan contract
+// ({ fullName, userMetrics }), and returns the generated plan as-is. Nothing is
+// persisted — there is no meal_plans table in v1 (see CODEBASE_CONTEXT §6).
+export const generateMealPlan = async (userId: string): Promise<unknown> => {
+  const [m] = await db
+    .select()
+    .from(userMetrics)
+    .where(eq(userMetrics.userId, userId))
+    .limit(1);
+  if (!m) {
+    throw new NutritionError(
+      404,
+      'USER_METRICS_NOT_FOUND',
+      'Complete onboarding before generating a meal plan',
+    );
+  }
+
+  const [u] = await db
+    .select({ fullName: users.fullName })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  // numeric(5,2) columns come back as strings → coerce to numbers (quirk #19).
+  const payload = {
+    userId,
+    fullName: u?.fullName,
+    userMetrics: {
+      gender: m.gender,
+      dateOfBirth: m.dateOfBirth,
+      heightCm: m.heightCm,
+      weightKg: Number(m.weightKg),
+      activityLevel: m.activityLevel,
+      goal: m.goal,
+      targetWeightKg:
+        m.targetWeightKg === null ? undefined : Number(m.targetWeightKg),
+      dailyCalorieTarget: m.dailyCalorieTarget,
+    },
+  };
+
+  try {
+    const resp = await fetch(`${env.AI_SERVICE_URL}/plan`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-AI-Secret': env.AI_SERVICE_SECRET,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new NutritionError(
+        503,
+        'AI_SERVICE_UNAVAILABLE',
+        `AI service responded ${resp.status}: ${body.slice(0, 200)}`,
+      );
+    }
+    return await resp.json();
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new NutritionError(
+      503,
+      'AI_SERVICE_UNAVAILABLE',
+      'AI service unreachable',
+    );
+  }
 };

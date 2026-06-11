@@ -4,6 +4,7 @@ import {
   createLog,
   dailySummary,
   deleteLog,
+  generateMealPlan,
   listLogs,
   updateLog,
 } from '../controllers/nutrition.controller';
@@ -193,5 +194,46 @@ router.delete('/food-logs/:id', deleteLog);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/summary/daily', dailySummary);
+
+/**
+ * @openapi
+ * /nutrition/meal-plans/generate:
+ *   post:
+ *     tags: [Nutrition]
+ *     summary: Generate an AI meal plan (synchronous)
+ *     description: >
+ *       Loads the caller's onboarding metrics and forwards them to the AI
+ *       microservice's /plan endpoint, returning the generated multi-day meal +
+ *       exercise plan. Stateless in v1 (nothing persisted — there is no
+ *       meal_plans table). Requires completed onboarding.
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Generated meal plan (summary, calories_target, daily_meals, exercise_plan)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: USER_METRICS_NOT_FOUND (onboarding not completed)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       503:
+ *         description: AI_SERVICE_UNAVAILABLE (AI microservice down or errored)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/meal-plans/generate', generateMealPlan);
 
 export default router;

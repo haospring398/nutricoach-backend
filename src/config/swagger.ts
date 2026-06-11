@@ -620,6 +620,7 @@ const options: swaggerJsdoc.Options = {
       { name: 'Admin', description: 'Admin operations' },
       { name: 'Content', description: 'Public content discovery' },
       { name: 'Quests', description: 'Gamification: quests, points, leaderboard' },
+      { name: 'Scan', description: 'AI food scanning' },
     ],
   },
   apis: ['./src/routes/*.ts', './src/app.ts'],

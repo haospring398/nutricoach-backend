@@ -9,7 +9,9 @@
       "Bash(node -e \"console.log\\(require\\('multer/package.json'\\).version\\)\")",
       "Bash(DB_SSL=true npx tsx -e ' *)",
       "Bash(DB_SSL='' npx tsx -e ' *)",
-      "Bash(env -u DB_SSL npx tsx -e ' *)"
+      "Bash(env -u DB_SSL npx tsx -e ' *)",
+      "Bash(cd /home/haodx *)",
+      "Read(//home/haodx/**)"
     ]
   }
 }

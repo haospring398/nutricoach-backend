@@ -43,21 +43,22 @@ src/
 │   ├── pt-assignment.model.ts   pt_assignments
 │   ├── pt-earnings.model.ts     pt_earnings, withdrawals
 │   ├── content.model.ts         articles, article_categories
-│   └── quest.model.ts           quests, daily_mission_logs, user_points
+│   ├── quest.model.ts           quests, daily_mission_logs, user_points
+│   └── ai-food-scan.model.ts    ai_food_scans
 │
 ├── controllers/            HTTP layer: parse req → call service → envelope response
 │   ├── auth.controller.ts        users.controller.ts        nutrition.controller.ts
 │   ├── foods.controller.ts       dashboard.controller.ts    payment.controller.ts
 │   ├── workout.controller.ts     pt.controller.ts           admin.controller.ts
 │   ├── course.controller.ts      pt-students.controller.ts  pt-earnings.controller.ts
-│   ├── content.controller.ts     quest.controller.ts
+│   ├── content.controller.ts     quest.controller.ts        scan.controller.ts
 │
 ├── services/               Business logic; no Express types
 │   ├── auth.service.ts           users.service.ts           nutrition.service.ts
 │   ├── foods.service.ts          dashboard.service.ts       payment.service.ts
 │   ├── workout.service.ts        pt.service.ts              course.service.ts
 │   ├── pt-students.service.ts    pt-earnings.service.ts     content.service.ts
-│   ├── quest.service.ts
+│   ├── quest.service.ts          scan.service.ts
 │   └── payment/
 │       ├── payos.client.ts       PayOS SDK singleton (throws at boot if creds missing)
 │       └── plans.ts              Hardcoded PRO_PLANS price table
@@ -67,7 +68,7 @@ src/
 │   ├── auth.routes.ts            users.routes.ts            nutrition.routes.ts
 │   ├── foods.routes.ts           dashboard.routes.ts        payment.routes.ts
 │   ├── workout.routes.ts         pt.routes.ts               admin.routes.ts
-│   ├── content.routes.ts         quest.routes.ts
+│   ├── content.routes.ts         quest.routes.ts            scan.routes.ts
 │   │   (admin.routes.ts also carries the /admin/articles, /admin/categories,
 │   │    and /admin/quests sub-routes; content.routes.ts carries PT-course
 │   │    discovery + article read endpoints)
@@ -77,6 +78,7 @@ src/
 │   ├── foods.validation.ts       payment.validation.ts      workout.validation.ts
 │   ├── pt.validation.ts          course.validation.ts       pt-assignment.validation.ts
 │   ├── pt-earnings.validation.ts content.validation.ts      quest.validation.ts
+│   ├── scan.validation.ts
 │
 ├── middlewares/
 │   ├── auth.middleware.ts       `authenticate` — verifies JWT, fetches user row,
@@ -101,7 +103,7 @@ src/
 │
 ├── db/
 │   ├── migrate.ts          Migration runner (`npm run db:migrate`)
-│   ├── migrations/         0000–0014 .sql files + meta/ (drizzle journal+snapshots)
+│   ├── migrations/         0000–0015 .sql files + meta/ (drizzle journal+snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts       CSV → food_items  (`npm run seed:foods`)
 │       └── exercises.seed.ts   JSON → exercises  (`npm run seed:exercises`)
@@ -126,7 +128,7 @@ not git-managed and not part of any module. Leave it alone unless asked.
 
 ## 2. Database tables
 
-**24 tables across 12 model files.** PKs are `uuid` unless noted.
+**25 tables across 13 model files.** PKs are `uuid` unless noted.
 
 ### `user.model.ts`
 - **users** — `id`, `email` (unique), `password` (bcrypt), `fullName`, `phone?`, `avatarUrl?`, `role` (user_role), `tier` (user_tier), `emailVerified`, `onboardingCompleted`, `preferredLanguage`, `createdAt`, `updatedAt`, `deletedAt?` (soft delete)
@@ -176,6 +178,9 @@ not git-managed and not part of any module. Leave it alone unless asked.
 - **daily_mission_logs** — `id`, `userId` → users (cascade), `questId` → quests (restrict), `date` (date — VN calendar date), `completedCount` (int default 0), `pointsEarned` (int default 0), `referenceId?` (varchar 64 — dedup/audit key), `createdAt`. **UNIQUE (user_id, quest_id, date)** (one row per user/quest/VN-day; `completedCount` accumulates up to the cap). Index `(user_id, date DESC)`.
 - **user_points** — `userId` (**PK** + FK → users, cascade), `totalPoints` (int default 0), `updatedAt`. Separate from `users` so gamification writes stay off the auth hot-path; upserted via `onConflictDoUpdate` on each award. Index `(total_points DESC)`.
 
+### `ai-food-scan.model.ts` (migration 0015)
+- **ai_food_scans** — `id`, `userId` → users (cascade), `imageHash` (varchar 64 — **SHA-256 hex of the scanned image; the raw base64 is never stored**), `extraction` (jsonb), `matchedRows` (jsonb, default `'[]'::jsonb`), `finalAnswer` (text, nullable), `createdAt` (**timestamptz** — payment/course/pt majority style). Indexes: `(user_id, created_at)`, `(user_id, image_hash)`. Written by `scan.service`; the row id becomes the server-verified `referenceId` for the AI_SCAN quest.
+
 ---
 
 ## 3. Mounted routes (`src/routes/index.ts`)
@@ -186,7 +191,7 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 |---|---|---:|---|
 | `/auth` | auth | 10 | register, login, refresh, logout, logout-all, me, verify-email, resend-verification, forgot-password, reset-password |
 | `/users` | users | 9 | me (GET/PATCH/DELETE), me/onboarding, me/metrics (GET + **PATCH** — update + recompute BMR/TDEE/macros/BMI), me/change-password, me/pt-assignments, **me/avatar (POST — Cloudinary upload)** |
-| `/nutrition` | nutrition | 5 | food-logs (POST/GET/PATCH/DELETE), summary/daily |
+| `/nutrition` | nutrition | 6 | food-logs (POST/GET/PATCH/DELETE), summary/daily, meal-plans/generate (AI) |
 | `/foods` | foods | 3 | search, categories, :id |
 | `/dashboard` | dashboard | 1 | user |
 | `/payment` | payment | 5 | checkout, webhook/payos, transactions, subscription, courses |
@@ -195,12 +200,13 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | `/admin` | admin | 17 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject), **articles (list/create/:id PATCH/:id publish/:id archive + categories POST)**, **quests (list/create/:id PATCH/leaderboard)** |
 | `/content` | content | 5 | discover/pt-courses, pt-courses/:id, **articles (list), categories (list), articles/:slug** |
 | `/quests` | quest | 4 | daily, trigger, diary-lock, points |
+| `/scan` | scan | 1 | scan (AI food scan) |
 
-**84 endpoints total** (+ `/health`). The `/admin` mount physically carries 17 handlers spanning
+**86 endpoints total** (+ `/health`). The `/admin` mount physically carries 17 handlers spanning
 three logical modules: PT review (7), Content/articles write (6), Quests admin (4). By logical
-module the split is **Auth 10 · Users 9 · Nutrition 5 · Foods 3 · Dashboard 1 · Payment 5 ·
+module the split is **Auth 10 · Users 9 · Nutrition 6 · Foods 3 · Dashboard 1 · Payment 5 ·
 Workout 7 · PT 18 · PT-review/admin 7 · Content 11 (2 PT-course + 9 articles) · Quests 8
-(4 user + 4 admin)** = 84. (Users grew 7 → 9 with `PATCH /me/metrics` and `POST /me/avatar`.)
+(4 user + 4 admin) · Scan 1** = 86. (Nutrition grew 5 → 6 with `POST /meal-plans/generate`; Scan is the new AI module, migration 0015.)
 
 ### Auth requirements per mount
 - `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
@@ -330,18 +336,22 @@ On a verified `PAID` event, inside **one DB transaction**, branches on `transact
 
 ## 6. Implemented vs planned
 
-**Implemented (11 mounted modules):** Auth, Users (incl. **`PATCH /me/metrics`** recompute
-and **`POST /me/avatar`** Cloudinary upload), Nutrition, Foods, Dashboard, Payment
+**Implemented (12 mounted modules):** Auth, Users (incl. **`PATCH /me/metrics`** recompute
+and **`POST /me/avatar`** Cloudinary upload), Nutrition (food logging + **AI meal-plan
+generation**), Foods, Dashboard, Payment
 (PRO subscriptions **+ PT-course purchases**), Workout (library + session logging),
 **PT (Phases 1–4 complete: verification → courses → students → earnings/withdrawals)**,
 Admin (PT-verification review + withdrawal review + article/category write + quest admin),
 **Content (PT-course discovery + articles/categories — migration 0013)**,
-**Quests (gamification: daily quests, points, leaderboard — migration 0014)**.
-Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 84 endpoints annotated).
+**Quests (gamification: daily quests, points, leaderboard — migration 0014)**,
+**Scan (AI food scan: Gemini microservice → dataset match → VN answer; migration 0015)**.
+Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 86 endpoints annotated).
 
 **Planned / not built:**
-- **Scan** — AI food scanning (OpenAI Vision). `openai` is installed but unused. Note: the
-  quest `AI_SCAN` trigger is client-verified until this ships (see quirk #18).
+- **Scan storage / replay** — `POST /scan` ships (migration 0015) but stores only the image
+  **hash** (never the base64); thumbnail/replay and a scan→food_log "confirm" flow are not
+  built. The scan calls an **external** Gemini microservice over HTTP; the bundled `openai`
+  dep remains installed but unused. AI_SCAN quest verification is now server-side (quirk #18).
 - **Deferred within shipped modules:**
   - live workout-session flow (start/log-set/finish), workout programs
   - subscription auto-renewal + the cron that expires stale subscriptions / downgrades `users.tier`
@@ -465,11 +475,20 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 84 endpoints annotated).
     `400×400 fill/face, quality:auto, format:auto` (**`format`, not `fetch_format`**). No migration —
     `users.avatar_url` exists since `0000`. A Cloudinary failure → `500 UPLOAD_FAILED`.
 
+### AI microservice gotchas
+21. **AI service is external + boot-required** — `AI_SERVICE_URL` (`z.string().url()`) and
+    `AI_SERVICE_SECRET` (`z.string().min(16)`) are boot-required in `env.ts` (same fail-fast
+    behavior as `CLOUDINARY_*`, quirk #9 — a missing var exits the process at boot).
+    `POST /scan` and `POST /nutrition/meal-plans/generate` call a **separate** Gemini-based
+    microservice over HTTP with an `X-AI-Secret` header. If it is unreachable or returns a
+    non-2xx, the backend responds **`503 AI_SERVICE_UNAVAILABLE`** and persists nothing — the
+    backend itself boots and runs fine with the AI service down (failures are per-request).
+
 ---
 
 ## Migrations to date
 
-`0000`–`0014` applied in order:
+`0000`–`0015` applied in order:
 
 | # | Tag | What |
 |---|---|---|
@@ -488,6 +507,7 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 84 endpoints annotated).
 | 0012 | pt_earnings_withdrawals | **PT P4** pt_earnings, withdrawals + backfill *(hand-written)* |
 | 0013 | articles | **content** articles, article_categories + 5 seeded categories *(hand-written)* |
 | 0014 | quest_system | **quest** quests (7 seeded), daily_mission_logs, user_points *(hand-written)* |
+| 0015 | ai_food_scans | **scan** ai_food_scans *(hand-written)* |
 
 Run `npm run db:migrate` to apply; `npm run seed:foods` and `npm run seed:exercises`
 to populate catalogs. (Quest catalog and article categories are seeded by their migrations,

@@ -24,8 +24,7 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented (by logical module): **Auth (10), Users (9), Nutrition (5), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (11 — 2 PT-course + 9 articles), Quests (8 — 4 user + 4 admin)** — **84 endpoints total** (+ `GET /health`)
-- Planned: Scan (AI food scanning)
+- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (11 — 2 PT-course + 9 articles), Quests (8 — 4 user + 4 admin), Scan (1)** — **86 endpoints total** (+ `GET /health`)
 
 > **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 17 handlers spanning three logical modules (PT review 7 + article/category write 6 + quest admin 4); the table above groups by logical module. PT is **18** (P1 4, P2 courses 7, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
 
@@ -708,6 +707,36 @@ Caller supplies all macros and a multiplier; server stores values as-is.
   - `progressPercent` rounded to 1 decimal; macro sums rounded to 2 decimals.
 - Errors:
   - `400 VALIDATION_ERROR` — missing or malformed `date`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/nutrition/meal-plans/generate
+
+Generates an AI meal + exercise plan from the caller's stored metrics. **Synchronous** — the request blocks on the AI microservice and returns the plan inline. **Stateless**: nothing is persisted (there is no `meal_plans` table in v1).
+
+- Auth: required
+- Request: no body required — the caller's `user_metrics` row (gender, DOB, height, weight, activity level, goal, target weight, daily calorie target) is loaded server-side and forwarded to the AI service. `numeric` weights are coerced to numbers first.
+- Behavior: maps the metrics to the AI service's `/plan` contract (`{ fullName, userMetrics }`), calls it with the `X-AI-Secret` header, and returns the generated plan as-is.
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "summary": "Kế hoạch 7 ngày ...",
+      "calories_target": 2124,
+      "daily_meals": [
+        { "day": 1, "meals": [ { "name": "Bữa sáng", "items": ["..."], "calories": 530 } ], "calories_estimate": 1800 }
+      ],
+      "exercise_plan": [ { "day": 1, "session": "Cardio 30 phút", "notes": "..." } ]
+    }
+  }
+  ```
+  The exact `data` shape is produced by the AI service and returned verbatim.
+- Errors:
+  - `401 UNAUTHORIZED`
+  - `404 USER_METRICS_NOT_FOUND` — onboarding not completed
+  - `503 AI_SERVICE_UNAVAILABLE` — AI microservice unreachable or returned a non-2xx
   - `500 INTERNAL_ERROR`
 
 ---
@@ -1661,7 +1690,7 @@ Public-ish (any authenticated user) discovery of published PT courses. The `/con
 
 Gamification: daily quests, points, and an admin leaderboard. All endpoints require auth; admin endpoints additionally require `requireRole('admin')`. Points live in a dedicated `user_points` table (off the auth hot-path). All per-day logic uses the **VN calendar date** (`Asia/Ho_Chi_Minh`). The quest catalog is seeded by migration 0014 with 7 quests.
 
-**Quest verification model:** `DAILY_LOGIN` is auto-triggered server-side (on `GET /quests/daily`); `PERFECT_DIARY` + `DISCIPLINE_MASTER` are server-computed by `/diary-lock`; `WORKOUT_DONE` is server-verified against `workout_sessions`; `AI_SCAN`, `PT_VISIT`, `DAILY_SHARE` are client-verified with a DB daily cap only.
+**Quest verification model:** `DAILY_LOGIN` is auto-triggered server-side (on `GET /quests/daily`); `PERFECT_DIARY` + `DISCIPLINE_MASTER` are server-computed by `/diary-lock`; `WORKOUT_DONE` is server-verified against `workout_sessions`; `AI_SCAN` is server-verified (`referenceId` must exist in `ai_food_scans` and belong to the calling user); `PT_VISIT`, `DAILY_SHARE` are client-verified with a DB daily cap only.
 
 ### GET /api/v1/quests/daily
 
@@ -1705,7 +1734,7 @@ Trigger a client-verifiable quest. The enum **excludes** the server-initiated qu
   - `questId`: enum `"AI_SCAN" | "WORKOUT_DONE" | "PT_VISIT" | "DAILY_SHARE"`
   - `date`: string `YYYY-MM-DD`
   - `referenceId` (optional, ≤64 chars): required for `WORKOUT_DONE` (the workout session id); audit-only for the others
-- Behavior: `WORKOUT_DONE` verifies the session exists, belongs to the user, and was performed on `date` (VN). `AI_SCAN`/`PT_VISIT`/`DAILY_SHARE` accept the client claim, capped by `maxCompletionsPerDay`.
+- Behavior: `WORKOUT_DONE` verifies the session exists, belongs to the user, and was performed on `date` (VN). `AI_SCAN` is server-verified — `referenceId` must exist in `ai_food_scans` and belong to the calling user. `PT_VISIT`/`DAILY_SHARE` accept the client claim, capped by `maxCompletionsPerDay`.
 - Response: `200 OK`
   ```json
   { "success": true, "data": { "triggered": true, "pointsAwarded": 20, "totalPoints": 80 } }
@@ -1809,6 +1838,40 @@ Top users by total points. Admin only.
 
 ---
 
+## Scan — `/api/v1/scan`
+
+AI food scanning via an external Gemini-based microservice. Requires auth.
+
+### POST /api/v1/scan
+
+Sends a base64 food image to the AI microservice (vision → dataset retrieval → Vietnamese answer), persists the image **hash only** (never the base64) in `ai_food_scans`, and triggers the `AI_SCAN` quest server-side (daily cap 3; the new scan id is the verified `referenceId`). The result is the model's extraction, matched dataset rows, and a free-text answer — **not** structured S/M/L sizes or per-macro numbers.
+
+- Auth: required
+- Request: body (unknown keys rejected by `.strict()`)
+  - `imageBase64`: string, min 100 chars — raw base64 (no `data:` prefix; the AI service adds the wrapper)
+  - `question` (optional): string, trim, 1–300 chars
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "scanId": "uuid",
+      "extraction": { "foods": [ { "english_name": "...", "vietnamese_name": "...", "confidence": 0.9 } ], "image_summary": "...", "likely_dataset": "dish" },
+      "retrievedRows": [ { "source_file": "vn_dishes.csv", "score": 92, "match_reason": "substring match", "row": { "Description_VN": "Phở bò", "Calories": "...", "Protein": "..." } } ],
+      "finalAnswer": "Món ăn là Phở bò ...",
+      "quest": { "triggered": true, "pointsAwarded": 20, "totalPoints": 80 }
+    }
+  }
+  ```
+  `extraction` and `retrievedRows` are passed through from the AI service. `quest` is `null` if the AI_SCAN quest could not be awarded (e.g. daily cap reached) — the scan still succeeds.
+- Errors:
+  - `400 VALIDATION_ERROR` — missing/short `imageBase64`, or unknown keys
+  - `401 UNAUTHORIZED`
+  - `503 AI_SERVICE_UNAVAILABLE` — AI microservice unreachable or returned a non-2xx
+  - `500 INTERNAL_ERROR`
+
+---
+
 ## Error code reference
 
 | Code | Source | Default status |
@@ -1864,4 +1927,5 @@ Top users by total points. Admin only.
 | WEBHOOK_PROCESSING_ERROR | payment webhook (processing failed; PayOS retries) | 500 |
 | UPLOAD_FAILED | users avatar upload (Cloudinary) | 500 |
 | PAYOS_UNAVAILABLE | payment checkout (PayOS call failed) | 503 |
+| AI_SERVICE_UNAVAILABLE | scan, meal-plans/generate | 503 |
 | INTERNAL_ERROR | any (incl. middleware DB lookup, unknown errors) | 500 |

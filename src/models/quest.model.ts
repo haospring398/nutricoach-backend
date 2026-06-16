@@ -1,7 +1,9 @@
 import {
   boolean,
   date,
+  index,
   integer,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -71,3 +73,71 @@ export type DailyMissionLog = typeof dailyMissionLogs.$inferSelect;
 export type NewDailyMissionLog = typeof dailyMissionLogs.$inferInsert;
 export type UserPoints = typeof userPoints.$inferSelect;
 export type NewUserPoints = typeof userPoints.$inferInsert;
+
+// ── Reward Redemption (migration 0016) ────────────────────────
+// Points become spendable: users redeem catalog rewards, points are deducted
+// atomically, and a reward_redemptions row tracks fulfillment. Reward "tier"
+// (SMALL/LARGE) is DERIVED from points_required in the service, never stored.
+
+export const redemptionStatusEnum = pgEnum('redemption_status', [
+  'pending',
+  'fulfilled',
+  'rejected',
+]);
+
+export const rewards = pgTable('rewards', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: varchar('name', { length: 200 }).notNull(),
+  description: text('description').notNull(),
+  pointsRequired: integer('points_required').notNull(),
+  isActive: boolean('is_active').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const rewardRedemptions = pgTable(
+  'reward_redemptions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    rewardId: uuid('reward_id')
+      .notNull()
+      .references(() => rewards.id, { onDelete: 'restrict' }),
+    rewardName: varchar('reward_name', { length: 200 }).notNull(), // snapshot
+    pointsCost: integer('points_cost').notNull(), // snapshot
+    deliveryAddress: text('delivery_address').notNull(),
+    phone: varchar('phone', { length: 20 }).notNull(),
+    status: redemptionStatusEnum('status').notNull().default('pending'),
+    voucherCode: varchar('voucher_code', { length: 32 }), // SMALL rewards only
+    adminNote: text('admin_note'), // reject reason / fulfill note
+    redeemedAt: timestamp('redeemed_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    fulfilledAt: timestamp('fulfilled_at', { withTimezone: true }), // set on fulfill OR reject
+    fulfilledByAdminId: uuid('fulfilled_by_admin_id').references(
+      () => users.id,
+      { onDelete: 'set null' },
+    ),
+  },
+  (t) => ({
+    userRedeemedIdx: index('reward_redemptions_user_redeemed_idx').on(
+      t.userId,
+      t.redeemedAt,
+    ),
+    statusRedeemedIdx: index('reward_redemptions_status_redeemed_idx').on(
+      t.status,
+      t.redeemedAt,
+    ),
+  }),
+);
+
+export type Reward = typeof rewards.$inferSelect;
+export type NewReward = typeof rewards.$inferInsert;
+export type RewardRedemption = typeof rewardRedemptions.$inferSelect;
+export type NewRewardRedemption = typeof rewardRedemptions.$inferInsert;

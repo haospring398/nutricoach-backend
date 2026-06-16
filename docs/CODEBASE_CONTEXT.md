@@ -484,6 +484,18 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 86 endpoints annotated).
     non-2xx, the backend responds **`503 AI_SERVICE_UNAVAILABLE`** and persists nothing — the
     backend itself boots and runs fine with the AI service down (failures are per-request).
 
+### Reward redemption gotchas
+22. **`user_points.total_points` is spendable balance, not lifetime earned** — since the reward
+    redemption system (migration 0016), redeeming a reward **deducts** points and rejecting a
+    redemption **refunds** them. So `total_points` is the current spendable balance, and
+    `GET /admin/quests/leaderboard` (which orders by `total_points DESC`) now ranks by **current
+    balance**, not cumulative points earned. The per-award history in `daily_mission_logs`
+    (`points_earned`) remains the lifetime-earn record. Deduction is atomic — a conditional
+    `UPDATE userPoints SET total_points = total_points - cost WHERE total_points >= cost` (via a
+    `sql` template tag); 0 rows updated → `409 INSUFFICIENT_POINTS`, so a balance can never go
+    negative. Reward **tier** (`SMALL` ≤ 500 pts / `LARGE` > 500) is derived in the service, never
+    stored. Reject refunds exactly once (guarded by the `WHERE status = 'pending'` transition).
+
 ---
 
 ## Migrations to date

@@ -85,3 +85,57 @@ export type TriggerQuestInput = z.infer<typeof triggerQuestSchema>['body'];
 export type DiaryLockInput = z.infer<typeof diaryLockSchema>['body'];
 export type CreateQuestInput = z.infer<typeof createQuestSchema>['body'];
 export type UpdateQuestInput = z.infer<typeof updateQuestSchema>['body'];
+
+// ── Reward redemption (migration 0016) ────────────────────────
+// Flat schemas (parsed directly from req.body / req.query / req.params),
+// matching admin.controller + the wider codebase convention.
+
+export const redeemRewardSchema = z
+  .object({
+    rewardId: z.string().uuid({ message: 'rewardId must be a valid UUID' }),
+    deliveryAddress: z
+      .string()
+      .trim()
+      .min(5, 'deliveryAddress must be at least 5 characters')
+      .max(255, 'deliveryAddress must be at most 255 characters'),
+    phone: z
+      .string()
+      .trim()
+      .regex(/^(0|\+84)\d{9}$/, 'phone must be a valid Vietnamese mobile number'),
+  })
+  .strict();
+
+export const myRedemptionsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const adminRedemptionsQuerySchema = z.object({
+  status: z.enum(['PENDING', 'FULFILLED', 'REJECTED']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const redemptionIdParamSchema = z.object({
+  id: z.string().uuid({ message: 'redemption id must be a valid UUID' }),
+});
+
+export const fulfillRedemptionSchema = z
+  .object({
+    adminNote: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
+export const rejectRedemptionSchema = z
+  .object({
+    adminNote: z
+      .string()
+      .trim()
+      .min(5, 'adminNote (reject reason) must be at least 5 characters')
+      .max(500),
+  })
+  .strict();
+
+export type RedeemRewardInput = z.infer<typeof redeemRewardSchema>;
+export type MyRedemptionsQuery = z.infer<typeof myRedemptionsQuerySchema>;
+export type AdminRedemptionsQuery = z.infer<typeof adminRedemptionsQuerySchema>;

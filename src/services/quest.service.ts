@@ -1,6 +1,8 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '../config/db';
 import { ApiError } from '../lib/api-error';
+import { sendRewardVoucherEmail } from '../lib/email';
 import { users } from '../models/user.model';
 import { userMetrics } from '../models/user-metrics.model';
 import { foodLogs } from '../models/food-log.model';
@@ -9,6 +11,8 @@ import { aiFoodScans } from '../models/ai-food-scan.model';
 import {
   dailyMissionLogs,
   quests,
+  rewardRedemptions,
+  rewards,
   userPoints,
   type DailyMissionLog,
   type Quest,
@@ -494,3 +498,328 @@ export async function adminGetLeaderboard(limit: number): Promise<
     .orderBy(desc(userPoints.totalPoints))
     .limit(limit);
 }
+
+// ══ Reward Redemption (migration 0016) ════════════════════════
+// SMALL ≤ 500 pts → voucher emailed; LARGE > 500 pts → admin fulfils offline.
+const SMALL_REWARD_MAX_POINTS = 500;
+
+const rewardTier = (pointsRequired: number): 'SMALL' | 'LARGE' =>
+  pointsRequired <= SMALL_REWARD_MAX_POINTS ? 'SMALL' : 'LARGE';
+
+const generateVoucherCode = (): string =>
+  `NUTRI-${randomBytes(4).toString('hex').toUpperCase()}`;
+
+// row → API view (status uppercased, tier derived from the snapshot cost).
+const presentRedemption = (
+  r: typeof rewardRedemptions.$inferSelect,
+): {
+  id: string;
+  rewardId: string;
+  rewardName: string;
+  pointsCost: number;
+  tier: 'SMALL' | 'LARGE';
+  status: 'PENDING' | 'FULFILLED' | 'REJECTED';
+  voucherCode: string | null;
+  deliveryAddress: string;
+  phone: string;
+  adminNote: string | null;
+  redeemedAt: Date;
+  fulfilledAt: Date | null;
+} => ({
+  id: r.id,
+  rewardId: r.rewardId,
+  rewardName: r.rewardName,
+  pointsCost: r.pointsCost,
+  tier: rewardTier(r.pointsCost),
+  status: r.status.toUpperCase() as 'PENDING' | 'FULFILLED' | 'REJECTED',
+  voucherCode: r.voucherCode,
+  deliveryAddress: r.deliveryAddress,
+  phone: r.phone,
+  adminNote: r.adminNote,
+  redeemedAt: r.redeemedAt,
+  fulfilledAt: r.fulfilledAt,
+});
+
+// ── User: list available rewards ──────────────────────────────
+export const listRewards = async () => {
+  const rows = await db
+    .select()
+    .from(rewards)
+    .where(eq(rewards.isActive, true))
+    .orderBy(rewards.pointsRequired);
+
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    pointsRequired: r.pointsRequired,
+    tier: rewardTier(r.pointsRequired),
+    isActive: r.isActive,
+  }));
+};
+
+// ── User: redeem a reward (atomic deduct) ─────────────────────
+export const redeemReward = async (
+  userId: string,
+  input: { rewardId: string; deliveryAddress: string; phone: string },
+) => {
+  const [reward] = await db
+    .select()
+    .from(rewards)
+    .where(and(eq(rewards.id, input.rewardId), eq(rewards.isActive, true)));
+
+  if (!reward) {
+    throw new QuestError(
+      404,
+      'REWARD_NOT_FOUND',
+      'Reward not found or no longer available',
+    );
+  }
+
+  const tier = rewardTier(reward.pointsRequired);
+  const voucherCode = tier === 'SMALL' ? generateVoucherCode() : null;
+
+  const { row, totalPoints } = await db.transaction(async (tx) => {
+    // Atomic check-and-deduct: the conditional UPDATE locks the row, so two
+    // concurrent redemptions serialize and points can never drop below zero.
+    const [deducted] = await tx
+      .update(userPoints)
+      .set({
+        totalPoints: sql`${userPoints.totalPoints} - ${reward.pointsRequired}`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(userPoints.userId, userId),
+          gte(userPoints.totalPoints, reward.pointsRequired),
+        ),
+      )
+      .returning();
+
+    if (!deducted) {
+      // 0 rows → either no points row at all, or balance < cost.
+      throw new QuestError(
+        409,
+        'INSUFFICIENT_POINTS',
+        'Not enough points to redeem this reward',
+      );
+    }
+
+    const [inserted] = await tx
+      .insert(rewardRedemptions)
+      .values({
+        userId,
+        rewardId: reward.id,
+        rewardName: reward.name,
+        pointsCost: reward.pointsRequired,
+        deliveryAddress: input.deliveryAddress,
+        phone: input.phone,
+        status: 'pending',
+        voucherCode,
+      })
+      .returning();
+
+    return { row: inserted!, totalPoints: deducted.totalPoints };
+  });
+
+  // Fire-and-forget voucher email for SMALL rewards (after commit; never blocks).
+  if (tier === 'SMALL' && voucherCode) {
+    const [u] = await db
+      .select({ email: users.email, fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, userId));
+    if (u) {
+      void sendRewardVoucherEmail(u.email, u.fullName, reward.name, voucherCode);
+    }
+  }
+
+  return { redemption: presentRedemption(row), totalPoints };
+};
+
+// ── User: own redemption history (paginated) ──────────────────
+export const listMyRedemptions = async (
+  userId: string,
+  input: { page: number; limit: number },
+) => {
+  const offset = (input.page - 1) * input.limit;
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(rewardRedemptions)
+    .where(eq(rewardRedemptions.userId, userId));
+
+  const rows = await db
+    .select()
+    .from(rewardRedemptions)
+    .where(eq(rewardRedemptions.userId, userId))
+    .orderBy(desc(rewardRedemptions.redeemedAt))
+    .limit(input.limit)
+    .offset(offset);
+
+  const totalItems = countRow?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / input.limit));
+  return {
+    items: rows.map(presentRedemption),
+    pagination: {
+      page: input.page,
+      limit: input.limit,
+      totalItems,
+      totalPages,
+      hasNext: input.page < totalPages,
+      hasPrev: input.page > 1,
+    },
+  };
+};
+
+// ── Admin: list all redemptions (filterable, paginated) ───────
+export const adminListRedemptions = async (input: {
+  status?: 'PENDING' | 'FULFILLED' | 'REJECTED';
+  page: number;
+  limit: number;
+}) => {
+  const offset = (input.page - 1) * input.limit;
+  const whereClause = input.status
+    ? eq(
+        rewardRedemptions.status,
+        input.status.toLowerCase() as 'pending' | 'fulfilled' | 'rejected',
+      )
+    : undefined;
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(rewardRedemptions)
+    .where(whereClause);
+
+  const rows = await db
+    .select({
+      r: rewardRedemptions,
+      userFullName: users.fullName,
+      userEmail: users.email,
+    })
+    .from(rewardRedemptions)
+    .innerJoin(users, eq(users.id, rewardRedemptions.userId))
+    .where(whereClause)
+    .orderBy(desc(rewardRedemptions.redeemedAt))
+    .limit(input.limit)
+    .offset(offset);
+
+  const totalItems = countRow?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / input.limit));
+  return {
+    items: rows.map(({ r, userFullName, userEmail }) => ({
+      ...presentRedemption(r),
+      userId: r.userId,
+      userFullName,
+      userEmail,
+    })),
+    pagination: {
+      page: input.page,
+      limit: input.limit,
+      totalItems,
+      totalPages,
+      hasNext: input.page < totalPages,
+      hasPrev: input.page > 1,
+    },
+  };
+};
+
+// ── Admin: fulfill (PENDING → FULFILLED) ──────────────────────
+export const adminFulfillRedemption = async (
+  adminId: string,
+  redemptionId: string,
+  input: { adminNote?: string },
+) =>
+  db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(rewardRedemptions)
+      .where(eq(rewardRedemptions.id, redemptionId));
+    if (!existing) {
+      throw new QuestError(404, 'REDEMPTION_NOT_FOUND', 'Redemption not found');
+    }
+
+    // Status-guarded update is the concurrency guard: only one tx wins.
+    const [updated] = await tx
+      .update(rewardRedemptions)
+      .set({
+        status: 'fulfilled',
+        adminNote: input.adminNote ?? existing.adminNote ?? null,
+        fulfilledByAdminId: adminId,
+        fulfilledAt: new Date(),
+      })
+      .where(
+        and(
+          eq(rewardRedemptions.id, redemptionId),
+          eq(rewardRedemptions.status, 'pending'),
+        ),
+      )
+      .returning();
+
+    if (!updated) {
+      throw new QuestError(
+        409,
+        'REDEMPTION_ALREADY_REVIEWED',
+        'Redemption is not pending',
+      );
+    }
+    return presentRedemption(updated);
+  });
+
+// ── Admin: reject (PENDING → REJECTED) + refund points ────────
+export const adminRejectRedemption = async (
+  adminId: string,
+  redemptionId: string,
+  input: { adminNote: string },
+) =>
+  db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(rewardRedemptions)
+      .where(eq(rewardRedemptions.id, redemptionId));
+    if (!existing) {
+      throw new QuestError(404, 'REDEMPTION_NOT_FOUND', 'Redemption not found');
+    }
+
+    const [updated] = await tx
+      .update(rewardRedemptions)
+      .set({
+        status: 'rejected',
+        adminNote: input.adminNote,
+        fulfilledByAdminId: adminId,
+        fulfilledAt: new Date(),
+      })
+      .where(
+        and(
+          eq(rewardRedemptions.id, redemptionId),
+          eq(rewardRedemptions.status, 'pending'),
+        ),
+      )
+      .returning();
+
+    if (!updated) {
+      throw new QuestError(
+        409,
+        'REDEMPTION_ALREADY_REVIEWED',
+        'Redemption is not pending',
+      );
+    }
+
+    // Refund fires only on the winning PENDING→REJECTED transition (exactly
+    // once). Upsert mirrors the existing user_points award pattern.
+    await tx
+      .insert(userPoints)
+      .values({
+        userId: updated.userId,
+        totalPoints: updated.pointsCost,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: userPoints.userId,
+        set: {
+          totalPoints: sql`${userPoints.totalPoints} + ${updated.pointsCost}`,
+          updatedAt: new Date(),
+        },
+      });
+
+    return presentRedemption(updated);
+  });

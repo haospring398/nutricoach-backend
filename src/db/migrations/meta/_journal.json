@@ -113,6 +113,13 @@
       "when": 1779700000000,
       "tag": "0015_ai_food_scans",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1779750000000,
+      "tag": "0016_reward_redemptions",
+      "breakpoints": true
     }
   ]
 }

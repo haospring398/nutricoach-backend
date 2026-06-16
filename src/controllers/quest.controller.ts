@@ -9,6 +9,9 @@ import {
   diaryLock,
   getDailyQuests,
   getPoints,
+  listMyRedemptions,
+  listRewards,
+  redeemReward,
   triggerQuest,
 } from '../services/quest.service';
 import {
@@ -16,6 +19,8 @@ import {
   diaryLockSchema,
   getPointsSchema,
   leaderboardSchema,
+  myRedemptionsQuerySchema,
+  redeemRewardSchema,
   triggerQuestSchema,
   updateQuestSchema,
 } from '../validations/quest.validation';
@@ -124,6 +129,47 @@ export const getPointsHandler = async (
     const { query } = getPointsSchema.parse({ query: req.query });
     const data = await getPoints(userId, query.page, query.limit);
     sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// ── Reward redemption (user) ──────────────────────────────────
+
+export const getRewards = async (
+  _req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const data = await listRewards();
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const redeem = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const body = redeemRewardSchema.parse(req.body);
+    const data = await redeemReward(userId, body);
+    sendSuccess(res, 201, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const getMyRedemptions = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const query = myRedemptionsQuerySchema.parse(req.query);
+    const { items, pagination } = await listMyRedemptions(userId, query);
+    res.status(200).json({ success: true, data: items, pagination });
   } catch (err) {
     handleError(res, err);
   }

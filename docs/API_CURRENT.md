@@ -1909,6 +1909,8 @@ Sends a base64 food image to the AI microservice (vision â†’ dataset retrieval â
 | QUEST_NOT_FOUND | quests trigger / admin quest update (unknown or inactive) | 404 |
 | ARTICLE_NOT_FOUND | content article detail / admin article update/publish/archive (or not published) | 404 |
 | CATEGORY_NOT_FOUND | admin article create/update (unknown categoryId) | 404 |
+| REWARD_NOT_FOUND | quests redeem (unknown or inactive reward) | 404 |
+| REDEMPTION_NOT_FOUND | admin redemption fulfill/reject (unknown id) | 404 |
 | EMAIL_EXISTS | register | 409 |
 | ALREADY_PT | pt verification submit (user already a PT) | 409 |
 | VERIFICATION_PENDING | pt verification submit (one pending app already) | 409 |
@@ -1920,6 +1922,8 @@ Sends a base64 food image to the AI microservice (vision â†’ dataset retrieval â
 | INSUFFICIENT_BALANCE | withdrawal create (amount > available balance) | 409 |
 | DIARY_INCOMPLETE | quests diary-lock (not all of BREAKFAST/LUNCH/DINNER logged) | 409 |
 | QUEST_ID_EXISTS | admin quests create (duplicate id) | 409 |
+| INSUFFICIENT_POINTS | quests redeem (balance < cost; atomic deduct matched 0 rows) | 409 |
+| REDEMPTION_ALREADY_REVIEWED | admin redemption fulfill/reject (status not pending) | 409 |
 | INVALID_ARTICLE_STATUS_TRANSITION | admin article publish/archive (illegal transition) | 409 |
 | CATEGORY_SLUG_EXISTS | admin categories create (duplicate slug) | 409 |
 | CURRICULUM_INCOMPLETE | pt course publish (lessons missing youtubeVideoId); includes `details` array | 422 |

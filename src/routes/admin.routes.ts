@@ -3,9 +3,12 @@ import { authenticate } from '../middlewares/auth.middleware';
 import { requireRole } from '../middlewares/role.middleware';
 import {
   approvePtVerificationHandler,
+  fulfillRewardRedemption,
   getPtVerificationByIdHandler,
   listPtVerificationsHandler,
+  listRewardRedemptions,
   rejectPtVerificationHandler,
+  rejectRewardRedemption,
 } from '../controllers/admin.controller';
 import {
   adminApproveWithdrawalHandler,
@@ -732,6 +735,137 @@ router.post('/quests', adminCreateQuestHandler);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/quests/leaderboard', adminLeaderboardHandler);
+
+/**
+ * @openapi
+ * /admin/quests/redemptions:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List reward redemptions (filterable, paginated)
+ *     description: Admin-only. Each row includes the redeeming user's fullName/email. Filter by status.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, FULFILLED, REJECTED]
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Paginated redemptions (with user info)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       403:
+ *         description: Forbidden (not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/quests/redemptions', listRewardRedemptions);
+
+/**
+ * @openapi
+ * /admin/quests/redemptions/{id}/fulfill:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Mark a redemption fulfilled (PENDING → FULFILLED)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               adminNote: { type: string, maxLength: 500 }
+ *     responses:
+ *       200:
+ *         description: Redemption fulfilled
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: Redemption not found (REDEMPTION_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Redemption already reviewed (REDEMPTION_ALREADY_REVIEWED)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch('/quests/redemptions/:id/fulfill', fulfillRewardRedemption);
+
+/**
+ * @openapi
+ * /admin/quests/redemptions/{id}/reject:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Reject a redemption and refund points (PENDING → REJECTED)
+ *     description: Refunds pointsCost to the user's balance exactly once. adminNote (reject reason) is required.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [adminNote]
+ *             properties:
+ *               adminNote: { type: string, minLength: 5, maxLength: 500 }
+ *     responses:
+ *       200:
+ *         description: Redemption rejected and points refunded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Redemption not found (REDEMPTION_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Redemption already reviewed (REDEMPTION_ALREADY_REVIEWED)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch('/quests/redemptions/:id/reject', rejectRewardRedemption);
 
 /**
  * @openapi

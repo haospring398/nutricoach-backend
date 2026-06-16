@@ -3,7 +3,10 @@ import { authenticate } from '../middlewares/auth.middleware';
 import {
   diaryLockHandler,
   getDailyQuestsHandler,
+  getMyRedemptions,
   getPointsHandler,
+  getRewards,
+  redeem,
   triggerQuestHandler,
 } from '../controllers/quest.controller';
 
@@ -146,5 +149,109 @@ router.post('/diary-lock', diaryLockHandler);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.get('/points', getPointsHandler);
+
+/**
+ * @openapi
+ * /quests/rewards:
+ *   get:
+ *     tags: [Quests]
+ *     summary: List active redeemable rewards
+ *     description: Active rewards ordered by pointsRequired ascending. Each carries a derived tier (SMALL ≤ 500 pts, LARGE > 500 pts).
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Active rewards with derived tier
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/rewards', getRewards);
+
+/**
+ * @openapi
+ * /quests/redeem:
+ *   post:
+ *     tags: [Quests]
+ *     summary: Redeem a reward with points
+ *     description: Atomically deducts pointsRequired from the caller's balance and creates a PENDING redemption. SMALL rewards generate a voucher code and email it (fire-and-forget); LARGE rewards are fulfilled offline by an admin.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [rewardId, deliveryAddress, phone]
+ *             properties:
+ *               rewardId: { type: string, format: uuid }
+ *               deliveryAddress: { type: string, minLength: 5, maxLength: 255 }
+ *               phone: { type: string, description: Vietnamese mobile (0xxxxxxxxx or +84xxxxxxxxx) }
+ *     responses:
+ *       201:
+ *         description: 'Redemption created: { redemption, totalPoints }'
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Reward not found or inactive (REWARD_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Insufficient points (INSUFFICIENT_POINTS)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/redeem', redeem);
+
+/**
+ * @openapi
+ * /quests/redemptions:
+ *   get:
+ *     tags: [Quests]
+ *     summary: The caller's own redemption history (paginated, newest first)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Paginated redemptions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/redemptions', getMyRedemptions);
 
 export default router;

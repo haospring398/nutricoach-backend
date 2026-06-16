@@ -149,3 +149,24 @@ export const sendWithdrawalRejectedEmail = async (
     html,
   );
 };
+
+export const sendRewardVoucherEmail = async (
+  to: string,
+  fullName: string,
+  rewardName: string,
+  voucherCode: string,
+): Promise<void> => {
+  const name = escapeHtml(fullName);
+  const reward = escapeHtml(rewardName);
+  const code = escapeHtml(voucherCode);
+  const html = `
+    <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+      <h2>Xin chúc mừng, ${name}!</h2>
+      <p>Bạn đã đổi thành công phần quà <strong>${reward}</strong>.</p>
+      <p>Mã quà tặng của bạn:</p>
+      <p style="font-size: 22px; font-weight: bold; letter-spacing: 2px; background: #f4f4f5; padding: 12px 16px; border-radius: 8px; text-align: center;">${code}</p>
+      <p>Cảm ơn bạn đã đồng hành cùng NutriCoach. Chúc bạn nhiều sức khỏe!</p>
+    </div>
+  `.trim();
+  await sendEmail(to, `Mã quà tặng NutriCoach: ${rewardName}`, html);
+};

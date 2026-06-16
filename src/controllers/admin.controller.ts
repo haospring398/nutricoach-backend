@@ -8,11 +8,22 @@ import {
   rejectVerification,
 } from '../services/pt.service';
 import {
+  adminFulfillRedemption,
+  adminListRedemptions,
+  adminRejectRedemption,
+} from '../services/quest.service';
+import {
   approveVerificationBodySchema,
   listVerificationsQuerySchema,
   rejectVerificationBodySchema,
   verificationIdParamSchema,
 } from '../validations/pt.validation';
+import {
+  adminRedemptionsQuerySchema,
+  fulfillRedemptionSchema,
+  redemptionIdParamSchema,
+  rejectRedemptionSchema,
+} from '../validations/quest.validation';
 
 const sendError = (
   res: Response,
@@ -128,6 +139,53 @@ export const rejectPtVerificationHandler = async (
       reason,
       requireResubmit,
     );
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// ── Reward redemptions (admin) ────────────────────────────────
+
+export const listRewardRedemptions = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const query = adminRedemptionsQuerySchema.parse(req.query);
+    const { items, pagination } = await adminListRedemptions(query);
+    res.status(200).json({ success: true, data: items, pagination });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const fulfillRewardRedemption = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const adminId = requireUser(req, res);
+    if (!adminId) return;
+    const { id } = redemptionIdParamSchema.parse(req.params);
+    const body = fulfillRedemptionSchema.parse(req.body);
+    const data = await adminFulfillRedemption(adminId, id, body);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const rejectRewardRedemption = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const adminId = requireUser(req, res);
+    if (!adminId) return;
+    const { id } = redemptionIdParamSchema.parse(req.params);
+    const body = rejectRedemptionSchema.parse(req.body);
+    const data = await adminRejectRedemption(adminId, id, body);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

@@ -274,6 +274,35 @@ export const getPublishedArticleBySlug = async (
   };
 };
 
+// ── 2b. getArticleById (admin draft preview, any status) ──────
+// Fetches full article detail by id regardless of status (draft / published /
+// archived). Same response shape as getPublishedArticleBySlug, but does NOT
+// increment view_count — an admin preview must not inflate the public metric.
+export const getArticleById = async (
+  id: string,
+): Promise<ArticleDetail & { status: ApiArticleStatus }> => {
+  const [row] = await db
+    .select({ ...listSelection, body: articles.body })
+    .from(articles)
+    .innerJoin(
+      articleCategories,
+      eq(articleCategories.id, articles.categoryId),
+    )
+    .innerJoin(users, eq(users.id, articles.authorId))
+    .where(eq(articles.id, id))
+    .limit(1);
+
+  if (!row) {
+    throw new ContentError(404, 'ARTICLE_NOT_FOUND', 'Article not found');
+  }
+
+  return {
+    ...toListItem(row),
+    body: row.body,
+    status: toApiStatus(row.status),
+  };
+};
+
 // ── 3. listCategories ─────────────────────────────────────────
 export const listCategories = async (): Promise<CategoryView[]> => {
   const publishedCount = sql<number>`(

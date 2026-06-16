@@ -17,6 +17,7 @@ import {
   archiveArticleHandler,
   createArticleHandler,
   createCategoryHandler,
+  getAdminArticleById,
   publishArticleHandler,
   updateArticleHandler,
 } from '../controllers/content.controller';
@@ -445,6 +446,44 @@ router.post('/articles', createArticleHandler);
 /**
  * @openapi
  * /admin/articles/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get an article by id (any status — draft preview)
+ *     description: Returns full article detail regardless of status (draft / published / archived). Does not increment view_count.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Full article detail
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Forbidden (caller is not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Article not found (ARTICLE_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *   patch:
  *     tags: [Admin]
  *     summary: Update an article
@@ -484,6 +523,7 @@ router.post('/articles', createArticleHandler);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
+router.get('/articles/:id', getAdminArticleById);
 router.patch('/articles/:id', updateArticleHandler);
 
 /**

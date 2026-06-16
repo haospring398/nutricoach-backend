@@ -6,6 +6,7 @@ import {
   archiveArticle,
   createArticle,
   createCategory,
+  getArticleById,
   getPublishedArticleBySlug,
   listCategories,
   listPublishedArticles,
@@ -137,6 +138,19 @@ export const adminListArticlesHandler = async (
     const query = adminListArticlesQuerySchema.parse(req.query);
     const { items, totalItems } = await adminListArticles(query);
     sendPaginated(res, items, totalItems, query.page, query.limit);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const getAdminArticleById = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { id } = articleIdParamSchema.parse(req.params);
+    const data = await getArticleById(id);
+    sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);
   }

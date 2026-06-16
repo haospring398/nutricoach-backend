@@ -24,9 +24,9 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (11 — 2 PT-course + 9 articles), Quests (8 — 4 user + 4 admin), Scan (1)** — **86 endpoints total** (+ `GET /health`)
+- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (12 — 2 PT-course + 10 articles), Quests (14 — 7 user + 7 admin), Scan (1)** — **93 endpoints total** (+ `GET /health`)
 
-> **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 17 handlers spanning three logical modules (PT review 7 + article/category write 6 + quest admin 4); the table above groups by logical module. PT is **18** (P1 4, P2 courses 7, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
+> **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 21 handlers spanning three logical modules (PT review 7 + article read/write 7 + quest admin 7 incl. 3 redemption); the table above groups by logical module. PT is **18** (P1 4, P2 courses 7, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
 
 > **⚠️ Documentation gap:** the **9 Content/articles endpoints** (migration 0013 — `GET/POST /content/articles*`, `GET /content/categories`, `POST/PATCH /admin/articles*`, `POST /admin/categories`) are wired, tested, and documented in **Swagger (`/api-docs`)**, but their per-endpoint request/response blocks are **not yet in this file**. The Quest endpoints below ARE fully documented. Tracked as a follow-up.
 
@@ -1649,6 +1649,17 @@ Marks the withdrawal `rejected` with a reason. The reserved balance is released 
 
 ---
 
+### GET /api/v1/admin/articles/:id
+
+Admin draft preview — returns full article detail by id **regardless of status** (draft/published/archived). Same shape as the public `GET /content/articles/:slug` plus a `status` field; does **not** increment `viewCount`. (The other admin article write endpoints — create/update/publish/archive + categories — are wired and in Swagger but not yet detailed in this file; see the documentation-gap note at the top.)
+
+- Auth: required (`requireRole('admin')`)
+- Request: path — `id` (UUID)
+- Response: `200 OK` — article detail `{ id, slug, title, excerpt, body, category, author, tags, readingTimeMin, viewCount, publishedAt, status }`; `status` is UPPERCASE (`DRAFT|PUBLISHED|ARCHIVED`)
+- Errors: `400 VALIDATION_ERROR` (id not a UUID), `404 ARTICLE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
 ## Content — `/api/v1/content`
 
 Public-ish (any authenticated user) discovery of published PT courses. The `/content` router is reserved for future articles work; only PT-course endpoints are wired today.
@@ -1868,6 +1879,106 @@ Sends a base64 food image to the AI microservice (vision → dataset retrieval �
   - `400 VALIDATION_ERROR` — missing/short `imageBase64`, or unknown keys
   - `401 UNAUTHORIZED`
   - `503 AI_SERVICE_UNAVAILABLE` — AI microservice unreachable or returned a non-2xx
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/quests/rewards
+
+Reward redemption (migration 0016). Points become spendable. Tier is **derived** from `pointsRequired` (`SMALL` ≤ 500 pts, `LARGE` > 500), never stored.
+
+- Auth: required
+- Request: none
+- Response: `200 OK` — active rewards ordered by `pointsRequired` asc, each `{ id, name, description, pointsRequired, tier, isActive }`
+- Errors: `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/quests/redeem
+
+Atomically deducts `pointsRequired` from the caller's `user_points.totalPoints` (conditional `UPDATE ... WHERE total_points >= cost`, so a balance can never go negative) and inserts a `PENDING` redemption snapshotting reward name/cost + delivery address/phone. SMALL rewards (≤ 500 pts) generate a `NUTRI-XXXXXXXX` voucher code and email it (fire-and-forget, after commit); LARGE rewards (> 500 pts) get `voucherCode: null` and are fulfilled offline by an admin.
+
+- Auth: required
+- Request: body (unknown keys rejected by `.strict()`)
+  - `rewardId`: UUID
+  - `deliveryAddress`: string, trim, 5–255 chars
+  - `phone`: string, Vietnamese mobile (`^(0|\+84)\d{9}$`)
+- Response: `201 Created`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "redemption": {
+        "id": "uuid",
+        "rewardId": "uuid",
+        "rewardName": "Voucher giảm giá 10.000đ",
+        "pointsCost": 100,
+        "tier": "SMALL",
+        "status": "PENDING",
+        "voucherCode": "NUTRI-1A2B3C4D",
+        "deliveryAddress": "123 Le Loi, Q1, HCMC",
+        "phone": "0901234567",
+        "adminNote": null,
+        "redeemedAt": "2026-06-04T10:30:00.000Z",
+        "fulfilledAt": null
+      },
+      "totalPoints": 420
+    }
+  }
+  ```
+  `totalPoints` is the caller's balance **after** the deduction. `voucherCode` is `null` for LARGE rewards.
+- Errors:
+  - `400 VALIDATION_ERROR`
+  - `404 REWARD_NOT_FOUND` — unknown or inactive reward
+  - `409 INSUFFICIENT_POINTS` — balance < cost (**no row inserted, no points changed**)
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/quests/redemptions
+
+- Auth: required
+- Request: query — `page` (≥1, default 1), `limit` (1–100, default 20)
+- Response: `200 OK` — paginated envelope (sibling `pagination`), the caller's own redemptions newest first; item shape matches the `redemption` object above.
+- Errors: `400 VALIDATION_ERROR`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/quests/redemptions
+
+- Auth: required (`requireRole('admin')`)
+- Request: query — `status` (optional `PENDING|FULFILLED|REJECTED`), `page` (≥1, default 1), `limit` (1–100, default 20)
+- Response: `200 OK` — paginated; each row is a redemption **plus** `userId`, `userFullName`, `userEmail` (joined from `users`), newest first.
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/admin/quests/redemptions/:id/fulfill
+
+Flips `PENDING → FULFILLED` (status-guarded — only one transition wins), sets `fulfilledAt` + `fulfilledByAdminId`. No points change.
+
+- Auth: required (`requireRole('admin')`)
+- Request: path — `id` (UUID); body — `adminNote?` (≤500 chars)
+- Response: `200 OK` — the updated redemption
+- Errors:
+  - `400 VALIDATION_ERROR` — id not a UUID
+  - `404 REDEMPTION_NOT_FOUND`
+  - `409 REDEMPTION_ALREADY_REVIEWED` — status not pending (a second fulfill/reject)
+  - `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/admin/quests/redemptions/:id/reject
+
+Flips `PENDING → REJECTED` and **refunds** `pointsCost` to the user's `user_points` **exactly once** (guarded by the pending→rejected transition). Sets `fulfilledAt` + `fulfilledByAdminId`.
+
+- Auth: required (`requireRole('admin')`)
+- Request: path — `id` (UUID); body — `adminNote` (required, 5–500 chars — reject reason)
+- Response: `200 OK` — the updated redemption
+- Errors:
+  - `400 VALIDATION_ERROR` — id not a UUID, or missing/short `adminNote`
+  - `404 REDEMPTION_NOT_FOUND`
+  - `409 REDEMPTION_ALREADY_REVIEWED` — status not pending (no double refund)
   - `500 INTERNAL_ERROR`
 
 ---

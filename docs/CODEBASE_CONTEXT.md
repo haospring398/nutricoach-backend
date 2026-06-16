@@ -103,7 +103,7 @@ src/
 │
 ├── db/
 │   ├── migrate.ts          Migration runner (`npm run db:migrate`)
-│   ├── migrations/         0000–0015 .sql files + meta/ (drizzle journal+snapshots)
+│   ├── migrations/         0000–0016 .sql files + meta/ (drizzle journal+snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts       CSV → food_items  (`npm run seed:foods`)
 │       └── exercises.seed.ts   JSON → exercises  (`npm run seed:exercises`)
@@ -128,7 +128,7 @@ not git-managed and not part of any module. Leave it alone unless asked.
 
 ## 2. Database tables
 
-**25 tables across 13 model files.** PKs are `uuid` unless noted.
+**27 tables across 13 model files.** PKs are `uuid` unless noted.
 
 ### `user.model.ts`
 - **users** — `id`, `email` (unique), `password` (bcrypt), `fullName`, `phone?`, `avatarUrl?`, `role` (user_role), `tier` (user_tier), `emailVerified`, `onboardingCompleted`, `preferredLanguage`, `createdAt`, `updatedAt`, `deletedAt?` (soft delete)
@@ -176,7 +176,11 @@ not git-managed and not part of any module. Leave it alone unless asked.
 ### `quest.model.ts` (migration 0014)
 - **quests** — `id` (**varchar 64 slug PK**, e.g. `DAILY_LOGIN`), `title` (varchar 200), `description` (text), `pointsPerCompletion` (int), `maxCompletionsPerDay` (int default 1), `isActive` (bool default true), timestamps. **Seeded with 7 rows** (DAILY_LOGIN, AI_SCAN, PERFECT_DIARY, DISCIPLINE_MASTER, WORKOUT_DONE, PT_VISIT, DAILY_SHARE).
 - **daily_mission_logs** — `id`, `userId` → users (cascade), `questId` → quests (restrict), `date` (date — VN calendar date), `completedCount` (int default 0), `pointsEarned` (int default 0), `referenceId?` (varchar 64 — dedup/audit key), `createdAt`. **UNIQUE (user_id, quest_id, date)** (one row per user/quest/VN-day; `completedCount` accumulates up to the cap). Index `(user_id, date DESC)`.
-- **user_points** — `userId` (**PK** + FK → users, cascade), `totalPoints` (int default 0), `updatedAt`. Separate from `users` so gamification writes stay off the auth hot-path; upserted via `onConflictDoUpdate` on each award. Index `(total_points DESC)`.
+- **user_points** — `userId` (**PK** + FK → users, cascade), `totalPoints` (int default 0), `updatedAt`. Separate from `users` so gamification writes stay off the auth hot-path; upserted via `onConflictDoUpdate` on each award. Index `(total_points DESC)`. **Since 0016 this is spendable balance, not lifetime earned** (see quirk #22).
+
+### reward redemption (in `quest.model.ts`, migration 0016)
+- **rewards** — `id`, `name` (varchar 200), `description` (text), `pointsRequired` (int — CHECK `> 0`), `isActive` (bool default true), `createdAt`/`updatedAt` (**timestamptz**). **Seeded with 5 rows** (3 SMALL ≤ 500 pts: 100/300/500; 2 LARGE > 500: 800/1000). Tier (`SMALL`/`LARGE`) is **derived from `pointsRequired` in the service, never stored** (`SMALL_REWARD_MAX_POINTS = 500`).
+- **reward_redemptions** — `id`, `userId` → users (cascade), `rewardId` → rewards (restrict), `rewardName` (varchar 200 — **snapshot**), `pointsCost` (int — **snapshot**; CHECK `>= 0`), `deliveryAddress` (text — snapshot), `phone` (varchar 20 — snapshot), `status` (redemption_status, default `pending`), `voucherCode?` (varchar 32 — SMALL rewards only), `adminNote?` (text — reject reason / fulfill note), `redeemedAt` (**timestamptz**), `fulfilledAt?` (set on fulfill OR reject), `fulfilledByAdminId?` → users (set null). Indexes: `(user_id, redeemed_at DESC)`, `(status, redeemed_at DESC)`.
 
 ### `ai-food-scan.model.ts` (migration 0015)
 - **ai_food_scans** — `id`, `userId` → users (cascade), `imageHash` (varchar 64 — **SHA-256 hex of the scanned image; the raw base64 is never stored**), `extraction` (jsonb), `matchedRows` (jsonb, default `'[]'::jsonb`), `finalAnswer` (text, nullable), `createdAt` (**timestamptz** — payment/course/pt majority style). Indexes: `(user_id, created_at)`, `(user_id, image_hash)`. Written by `scan.service`; the row id becomes the server-verified `referenceId` for the AI_SCAN quest.
@@ -197,16 +201,16 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | `/payment` | payment | 5 | checkout, webhook/payos, transactions, subscription, courses |
 | `/workout` | workout | 7 | exercises (list/detail), sessions (POST/GET/GET:id/PATCH/DELETE) |
 | `/pt` | pt | 18 | verification (POST), verification/status, me (GET/PATCH), courses (POST/GET/GET:id/PATCH, :id/curriculum PUT, :id/publish, :id/archive), students (GET, GET:studentId, :studentId/meal-plan PUT, :studentId/exercises POST), earnings (GET), withdrawals (POST/GET) |
-| `/admin` | admin | 17 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject), **articles (list/create/:id PATCH/:id publish/:id archive + categories POST)**, **quests (list/create/:id PATCH/leaderboard)** |
+| `/admin` | admin | 21 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject), **articles (list/create/:id GET/:id PATCH/:id publish/:id archive + categories POST)**, **quests (list/create/:id PATCH/leaderboard + redemptions list/:id fulfill/:id reject)** |
 | `/content` | content | 5 | discover/pt-courses, pt-courses/:id, **articles (list), categories (list), articles/:slug** |
-| `/quests` | quest | 4 | daily, trigger, diary-lock, points |
+| `/quests` | quest | 7 | daily, trigger, diary-lock, points, rewards, redeem, redemptions |
 | `/scan` | scan | 1 | scan (AI food scan) |
 
-**86 endpoints total** (+ `/health`). The `/admin` mount physically carries 17 handlers spanning
-three logical modules: PT review (7), Content/articles write (6), Quests admin (4). By logical
+**93 endpoints total** (+ `/health`). The `/admin` mount physically carries 21 handlers spanning
+three logical modules: PT review (7), Content/articles (7 — incl. the `:id` draft preview), Quests admin (7 — incl. 3 redemption). By logical
 module the split is **Auth 10 · Users 9 · Nutrition 6 · Foods 3 · Dashboard 1 · Payment 5 ·
-Workout 7 · PT 18 · PT-review/admin 7 · Content 11 (2 PT-course + 9 articles) · Quests 8
-(4 user + 4 admin) · Scan 1** = 86. (Nutrition grew 5 → 6 with `POST /meal-plans/generate`; Scan is the new AI module, migration 0015.)
+Workout 7 · PT 18 · PT-review/admin 7 · Content 12 (2 PT-course + 10 articles) · Quests 14
+(7 user + 7 admin) · Scan 1** = 93. (Quests grew 8 → 14 with reward redemption, migration 0016; Content grew 11 → 12 with `GET /admin/articles/:id`.)
 
 ### Auth requirements per mount
 - `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
@@ -221,7 +225,7 @@ Workout 7 · PT 18 · PT-review/admin 7 · Content 11 (2 PT-course + 9 articles)
 ## 4. Enums — ⚠️ DB casing is NOT uniform
 
 **API responses are always UPPERCASE.** DB storage casing is split — this is a real
-quirk, not a convention. Conversion is only needed for the lowercase group. **22 enums total.**
+quirk, not a convention. Conversion is only needed for the lowercase group. **23 enums total.**
 (The quest module added **no** enums — `daily_mission_logs.date` is a plain `date` column and quest ids are varchar slugs, not a pgEnum.)
 
 ### Stored LOWERCASE in DB → must convert to UPPERCASE for API
@@ -241,6 +245,7 @@ quirk, not a convention. Conversion is only needed for the lowercase group. **22
 | `earnings_status` | `on_hold, available, refunded, paid_out` | **PT P4** |
 | `withdrawal_status` | `pending_approval, completed, rejected` | **PT P4** |
 | `article_status` | `draft, published, archived` | **content** |
+| `redemption_status` | `pending, fulfilled, rejected` | **reward redemption (0016)** |
 
 Notes on the Phase 4 enums:
 - `earnings_status` — `paid_out` is **defined but never written** in v1. The `on_hold → available`
@@ -343,9 +348,9 @@ generation**), Foods, Dashboard, Payment
 **PT (Phases 1–4 complete: verification → courses → students → earnings/withdrawals)**,
 Admin (PT-verification review + withdrawal review + article/category write + quest admin),
 **Content (PT-course discovery + articles/categories — migration 0013)**,
-**Quests (gamification: daily quests, points, leaderboard — migration 0014)**,
+**Quests (gamification: daily quests, points, leaderboard, **reward redemption** — migrations 0014 + 0016)**,
 **Scan (AI food scan: Gemini microservice → dataset match → VN answer; migration 0015)**.
-Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 86 endpoints annotated).
+Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 93 endpoints annotated).
 
 **Planned / not built:**
 - **Scan storage / replay** — `POST /scan` ships (migration 0015) but stores only the image
@@ -500,7 +505,7 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 86 endpoints annotated).
 
 ## Migrations to date
 
-`0000`–`0015` applied in order:
+`0000`–`0016` applied in order:
 
 | # | Tag | What |
 |---|---|---|
@@ -520,6 +525,7 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 86 endpoints annotated).
 | 0013 | articles | **content** articles, article_categories + 5 seeded categories *(hand-written)* |
 | 0014 | quest_system | **quest** quests (7 seeded), daily_mission_logs, user_points *(hand-written)* |
 | 0015 | ai_food_scans | **scan** ai_food_scans *(hand-written)* |
+| 0016 | reward_redemptions | **quest** rewards (5 seeded), reward_redemptions + redemption_status enum *(hand-written)* |
 
 Run `npm run db:migrate` to apply; `npm run seed:foods` and `npm run seed:exercises`
 to populate catalogs. (Quest catalog and article categories are seeded by their migrations,

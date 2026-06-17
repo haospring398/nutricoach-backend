@@ -25,15 +25,19 @@ export class QuestError extends ApiError {}
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // ── VN date utility ───────────────────────────────────────────
-// toLocaleString('en-US') is safe on all Node.js ICU builds; en-CA format
-// output is unreliable on small-icu (Render.com) — falls back to MM/DD/YYYY.
+// formatToParts with explicit numeric fields is locale-pattern-independent and
+// bundled in small-icu (Render.com) — unlike en-CA, whose ISO layout falls back
+// to MM/DD/YYYY there. Reading parts by type avoids any non-ISO Date(string) parse.
 export function getVnDateString(): string {
-  const now = new Date();
-  const vnNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
-  const yyyy = vnNow.getFullYear();
-  const mm = String(vnNow.getMonth() + 1).padStart(2, '0');
-  const dd = String(vnNow.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: string): string =>
+    parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
 // ── Shared: total points (out of transaction) ─────────────────

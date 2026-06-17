@@ -59,13 +59,12 @@ const getTodayInVn = (): {
   endUtc: Date;
 } => {
   const now = new Date();
-  const fmt = new Intl.DateTimeFormat('en-CA', {
-    timeZone: VN_TZ,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const dateStr = fmt.format(now); // "YYYY-MM-DD"
+  // toLocaleString('en-US') is safe on small-icu builds; en-CA format is not.
+  const vnNow = new Date(now.toLocaleString('en-US', { timeZone: VN_TZ }));
+  const yyyy = vnNow.getFullYear();
+  const mm = String(vnNow.getMonth() + 1).padStart(2, '0');
+  const dd = String(vnNow.getDate()).padStart(2, '0');
+  const dateStr = `${yyyy}-${mm}-${dd}`;
   const startUtc = new Date(`${dateStr}T00:00:00${VN_OFFSET}`);
   const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
   return { dateStr, startUtc, endUtc };

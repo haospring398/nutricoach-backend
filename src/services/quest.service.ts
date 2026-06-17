@@ -25,14 +25,15 @@ export class QuestError extends ApiError {}
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // ── VN date utility ───────────────────────────────────────────
-// en-CA locale yields ISO 'YYYY-MM-DD'.
+// toLocaleString('en-US') is safe on all Node.js ICU builds; en-CA format
+// output is unreliable on small-icu (Render.com) — falls back to MM/DD/YYYY.
 export function getVnDateString(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
+  const now = new Date();
+  const vnNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Ho_Chi_Minh' }));
+  const yyyy = vnNow.getFullYear();
+  const mm = String(vnNow.getMonth() + 1).padStart(2, '0');
+  const dd = String(vnNow.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 // ── Shared: total points (out of transaction) ─────────────────

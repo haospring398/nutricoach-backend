@@ -152,13 +152,17 @@ export const adminBanUser = async (
   }
 
   const [target] = await db
-    .select({ id: users.id, deletedAt: users.deletedAt })
+    .select({ id: users.id, role: users.role, deletedAt: users.deletedAt })
     .from(users)
     .where(eq(users.id, targetId))
     .limit(1);
 
   if (!target || target.deletedAt !== null) {
     throw new ApiError(404, 'USER_NOT_FOUND', 'User not found');
+  }
+
+  if (target.role === 'admin') {
+    throw new ApiError(403, 'CANNOT_TARGET_ADMIN', 'Cannot ban another admin account');
   }
 
   await db.transaction(async (tx) => {
@@ -217,13 +221,17 @@ export const adminChangeUserRole = async (
   }
 
   const [target] = await db
-    .select({ id: users.id, deletedAt: users.deletedAt })
+    .select({ id: users.id, role: users.role, deletedAt: users.deletedAt })
     .from(users)
     .where(eq(users.id, targetId))
     .limit(1);
 
   if (!target || target.deletedAt !== null) {
     throw new ApiError(404, 'USER_NOT_FOUND', 'User not found');
+  }
+
+  if (target.role === 'admin') {
+    throw new ApiError(403, 'CANNOT_TARGET_ADMIN', 'Cannot change role of another admin account');
   }
 
   await db
@@ -241,23 +249,22 @@ const RANGE_DAYS: Record<string, number> = { '7d': 7, '30d': 30, '90d': 90 };
 
 export const adminUsersAnalytics = async (input: AdminAnalyticsQuery) => {
   const days = RANGE_DAYS[input.range];
-  // Calculate cutoff in JS and pass as a bound parameter — avoids string-inject into SQL
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
   const [totalRow] = await db
     .select({ total: count() })
     .from(users)
     .where(isNull(users.deletedAt));
 
-  // users.created_at is timestamp WITHOUT timezone → double-cast for VN date
-  // Pattern from dashboard.service.ts: (ts AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
+  // users.created_at is timestamp WITHOUT timezone — server stores in local time, not UTC.
+  // Cutoff must also be expressed as local VN time to avoid ±7h boundary drift.
+  // sql.raw is safe here: days is a number from a closed enum {'7d','30d','90d'}.
   const result = await db.execute(sql`
     SELECT
       ((created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Ho_Chi_Minh')::date)::text AS date,
       COUNT(*)::int AS count
     FROM users
     WHERE deleted_at IS NULL
-      AND created_at >= ${cutoff}
+      AND created_at >= (NOW() AT TIME ZONE 'Asia/Ho_Chi_Minh' - INTERVAL '${sql.raw(String(days))} days')::timestamp
     GROUP BY 1
     ORDER BY 1
   `);

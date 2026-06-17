@@ -103,7 +103,7 @@ src/
 │
 ├── db/
 │   ├── migrate.ts          Migration runner (`npm run db:migrate`)
-│   ├── migrations/         0000–0016 .sql files + meta/ (drizzle journal+snapshots)
+│   ├── migrations/         0000–0018 .sql files + meta/ (drizzle journal+snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts       CSV → food_items  (`npm run seed:foods`)
 │       └── exercises.seed.ts   JSON → exercises  (`npm run seed:exercises`)
@@ -131,7 +131,7 @@ not git-managed and not part of any module. Leave it alone unless asked.
 **27 tables across 13 model files.** PKs are `uuid` unless noted.
 
 ### `user.model.ts`
-- **users** — `id`, `email` (unique), `password` (bcrypt), `fullName`, `phone?`, `avatarUrl?`, `role` (user_role), `tier` (user_tier), `emailVerified`, `onboardingCompleted`, `preferredLanguage`, `createdAt`, `updatedAt`, `deletedAt?` (soft delete)
+- **users** — `id`, `email` (unique), `password` (bcrypt), `fullName`, `phone?`, `avatarUrl?`, `role` (user_role), `tier` (user_tier), `emailVerified`, `onboardingCompleted`, `preferredLanguage`, `createdAt`, `updatedAt`, `deletedAt?` (soft delete), `isBanned` (bool default false), `banReason?` (text), `bannedAt?` (timestamptz) — ban columns added in 0017
 - **refresh_tokens** — `id`, `userId` → users (cascade), `token` (unique), `expiresAt`, `createdAt`
 
 ### `user-metrics.model.ts`
@@ -159,7 +159,7 @@ not git-managed and not part of any module. Leave it alone unless asked.
 ### `course.model.ts` (Phase 2)
 - **courses** — `id`, `ptId` → users (restrict), `title` (varchar 200), `description` (text), `thumbnailUrl?` (varchar 512), `priceVnd` (int), `durationDays` (int), `tags` (text[]), `status` (course_status, default `draft`), `publishedAt?`, `archivedAt?`, `totalLessons` (int, **service-maintained denormalized count**), `createdAt`, `updatedAt`. Indexes on `pt_id`, `status`, + trigram GIN on `title` (migration). CHECKs: price 50k–50M, duration 1–365, `char_length(trim(title)) ≥ 3`.
 - **course_modules** — `id`, `courseId` → courses (cascade), `title` (varchar 200), `displayOrder` (int), timestamps. **UNIQUE (course_id, display_order)**. CHECK `display_order ≥ 0`.
-- **course_lessons** — `id`, `moduleId` → course_modules (cascade), `title` (varchar 200), `youtubeVideoId?` (varchar 32 — nullable until publish), `durationMin` (int default 0), `displayOrder` (int), timestamps. **UNIQUE (module_id, display_order)**. CHECKs: order ≥ 0, duration 0–600.
+- **course_lessons** — `id`, `moduleId` → course_modules (cascade), `title` (varchar 200), `youtubeVideoId?` (varchar 32 — nullable until publish), `cloudinaryVideoUrl?` (varchar 512 — Cloudinary-hosted video, alternative to `youtubeVideoId`; added in 0018), `durationMin` (int default 0), `displayOrder` (int), timestamps. **UNIQUE (module_id, display_order)**. CHECKs: order ≥ 0, duration 0–600. A lesson is publishable if it has **either** `youtubeVideoId` or `cloudinaryVideoUrl`.
 - **enrollments** — `id`, `userId` → users (cascade), `courseId` → courses (restrict), `ptId` → users (restrict, denormalized from course), `transactionId` → transactions (restrict), `status` (enrollment_status, default `active`), `enrolledAt`, `completedAt?`, timestamps. **UNIQUE (transaction_id)** (webhook idempotency). Partial unique **(user_id, course_id) WHERE status != 'refunded'** (no double-enroll). Indexes on user/pt/course. *Owned by Phase 3 conceptually; ships in Phase 2 because the payment webhook writes it.*
 
 ### `pt-assignment.model.ts` (Phase 3)
@@ -200,24 +200,24 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | `/dashboard` | dashboard | 1 | user |
 | `/payment` | payment | 5 | checkout, webhook/payos, transactions, subscription, courses |
 | `/workout` | workout | 7 | exercises (list/detail), sessions (POST/GET/GET:id/PATCH/DELETE) |
-| `/pt` | pt | 18 | verification (POST), verification/status, me (GET/PATCH), courses (POST/GET/GET:id/PATCH, :id/curriculum PUT, :id/publish, :id/archive), students (GET, GET:studentId, :studentId/meal-plan PUT, :studentId/exercises POST), earnings (GET), withdrawals (POST/GET) |
-| `/admin` | admin | 21 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject), **articles (list/create/:id GET/:id PATCH/:id publish/:id archive + categories POST)**, **quests (list/create/:id PATCH/leaderboard + redemptions list/:id fulfill/:id reject)** |
+| `/pt` | pt | 20 | verification (POST), verification/status, me (GET/PATCH), courses (POST/GET/GET:id/PATCH, :id/curriculum PUT, :id/publish, :id/archive, **:id/thumbnail POST, :id/lessons/:lessonId/video POST**), students (GET, GET:studentId, :studentId/meal-plan PUT, :studentId/exercises POST), earnings (GET), withdrawals (POST/GET) |
+| `/admin` | admin | 32 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject), **articles (upload-image/list/create/:id GET/:id PATCH/:id publish/:id archive + categories POST)**, **quests (list/create/:id PATCH/leaderboard + redemptions list/:id fulfill/:id reject + rewards list/create/:id PATCH/:id DELETE)**, **users (list/:id GET/:id ban/:id unban/:id role PATCH + analytics/users)** |
 | `/content` | content | 5 | discover/pt-courses, pt-courses/:id, **articles (list), categories (list), articles/:slug** |
 | `/quests` | quest | 7 | daily, trigger, diary-lock, points, rewards, redeem, redemptions |
 | `/scan` | scan | 1 | scan (AI food scan) |
 
-**93 endpoints total** (+ `/health`). The `/admin` mount physically carries 21 handlers spanning
-three logical modules: PT review (7), Content/articles (7 — incl. the `:id` draft preview), Quests admin (7 — incl. 3 redemption). By logical
+**106 endpoints total** (+ `/health`). The `/admin` mount physically carries 32 handlers spanning
+four logical modules: PT review (7), Content/articles write (8 — incl. `upload-image` + the `:id` draft preview), Quests admin (11 — incl. 3 redemption + 4 rewards CRUD), User management (6 — incl. analytics). By logical
 module the split is **Auth 10 · Users 9 · Nutrition 6 · Foods 3 · Dashboard 1 · Payment 5 ·
-Workout 7 · PT 18 · PT-review/admin 7 · Content 12 (2 PT-course + 10 articles) · Quests 14
-(7 user + 7 admin) · Scan 1** = 93. (Quests grew 8 → 14 with reward redemption, migration 0016; Content grew 11 → 12 with `GET /admin/articles/:id`.)
+Workout 7 · PT 20 · PT-review/admin 7 · Admin user-mgmt 6 · Content 13 (2 PT-course + 11 articles) · Quests 18
+(7 user + 11 admin) · Scan 1** = 106. (PT grew 18 → 20 with course thumbnail + lesson video upload, migration 0018; Quests admin grew 7 → 11 with rewards CRUD; Admin user management is a new group of 6, migration 0017. Content articles = 3 read + 8 write incl. `POST /admin/articles/upload-image`.)
 
 ### Auth requirements per mount
 - `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
 - `/users`, `/nutrition`, `/foods`, `/dashboard`, `/workout`, `/content`, `/quests`: all require `authenticate`. (Article read endpoints under `/content` are auth-required for router consistency — a deliberate deviation from the spec's "PUBLIC".)
 - `/payment`: `authenticate`-gated **except** `POST /payment/webhook/payos` (public, PayOS-signature-verified).
 - `/pt`: requires `authenticate`. `verification` + `verification/status` are open to any authed user (a prospective PT). `me`, `courses/*`, `students/*`, `earnings`, `withdrawals` add `requireRole('pt')`. The `students/:studentId/*` routes additionally chain `requirePtAccessToStudent`.
-- `/admin`: `authenticate` + `requireRole('admin')` (applied router-wide) — covers PT review, article/category write, and quest admin (list/create/update/leaderboard).
+- `/admin`: `authenticate` + `requireRole('admin')` (applied router-wide) — covers PT review, article/category write, quest admin (list/create/update/leaderboard + rewards CRUD), and user management (list/detail/ban/unban/role + analytics).
 - `/quests`: `authenticate` only (any logged-in user). The 4 quest **admin** endpoints live under `/admin/quests/*` (merged into `admin.routes.ts`), not under this mount.
 
 ---
@@ -345,12 +345,12 @@ On a verified `PAID` event, inside **one DB transaction**, branches on `transact
 and **`POST /me/avatar`** Cloudinary upload), Nutrition (food logging + **AI meal-plan
 generation**), Foods, Dashboard, Payment
 (PRO subscriptions **+ PT-course purchases**), Workout (library + session logging),
-**PT (Phases 1–4 complete: verification → courses → students → earnings/withdrawals)**,
-Admin (PT-verification review + withdrawal review + article/category write + quest admin),
+**PT (Phases 1–4 complete: verification → courses → students → earnings/withdrawals, incl. **course thumbnail + lesson video upload to Cloudinary** — migration 0018)**,
+Admin (PT-verification review + withdrawal review + article/category write + quest admin incl. **rewards CRUD** + **user management: list/detail/ban/unban/role + growth analytics** — migration 0017),
 **Content (PT-course discovery + articles/categories — migration 0013)**,
 **Quests (gamification: daily quests, points, leaderboard, **reward redemption** — migrations 0014 + 0016)**,
 **Scan (AI food scan: Gemini microservice → dataset match → VN answer; migration 0015)**.
-Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 93 endpoints annotated).
+Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 106 endpoints annotated).
 
 **Planned / not built:**
 - **Scan storage / replay** — `POST /scan` ships (migration 0015) but stores only the image
@@ -455,7 +455,7 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 93 endpoints annotated).
     (NFD diacritic strip, đ→d, 4-hex suffix); editing the title via PATCH does **not** change the
     slug. `view_count` is a fire-and-forget `UPDATE` outside any transaction (soft metric).
 17. **Quest VN-date handling** — `daily_mission_logs.date` is computed in JS via `getVnDateString()`
-    (`Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh' })`). `WORKOUT_DONE` verifies the
+    (`Intl.DateTimeFormat('en-US', …).formatToParts()` — see quirk #23; previously `en-CA`). `WORKOUT_DONE` verifies the
     session with a **single** `AT TIME ZONE 'Asia/Ho_Chi_Minh'` cast (performed_at is timestamptz);
     `diary-lock` filters `food_logs.consumed_at` with the **double**-cast (see quirk #5). Quest
     `created_at`/`updated_at` are plain `timestamp` (no tz) — the only non-timestamptz timestamps
@@ -501,11 +501,21 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 93 endpoints annotated).
     negative. Reward **tier** (`SMALL` ≤ 500 pts / `LARGE` > 500) is derived in the service, never
     stored. Reject refunds exactly once (guarded by the `WHERE status = 'pending'` transition).
 
+### Date / timezone gotchas
+23. **Node.js small-icu / Render.com date formatting** — `Intl.DateTimeFormat('en-CA', …)` is **unreliable on
+    small-icu Node builds** (e.g. Render.com): the `en-CA` ISO layout isn't bundled, so it falls back to the
+    `en` (US) `MM/DD/YYYY` form, producing an invalid `YYYY-MM-DD` string → PostgreSQL `::date` cast throws
+    `date/time field value out of range` → 500 on all quest + dashboard endpoints. Fix: build the date from
+    `Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Ho_Chi_Minh', year:'numeric', month:'2-digit',
+    day:'2-digit' }).formatToParts()` and read the `year`/`month`/`day` parts by type — locale-pattern-
+    independent, bundled in small-icu, and avoids re-parsing a non-ISO string through `new Date()`. Applied in
+    `quest.service.ts:getVnDateString` and `dashboard.service.ts:getTodayInVn`.
+
 ---
 
 ## Migrations to date
 
-`0000`–`0016` applied in order:
+`0000`–`0018` applied in order:
 
 | # | Tag | What |
 |---|---|---|
@@ -526,6 +536,8 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 93 endpoints annotated).
 | 0014 | quest_system | **quest** quests (7 seeded), daily_mission_logs, user_points *(hand-written)* |
 | 0015 | ai_food_scans | **scan** ai_food_scans *(hand-written)* |
 | 0016 | reward_redemptions | **quest** rewards (5 seeded), reward_redemptions + redemption_status enum *(hand-written)* |
+| 0017 | admin_user_management | **admin** users ban columns (`is_banned`, `ban_reason`, `banned_at`) *(hand-written)* |
+| 0018 | lesson_cloudinary_video | **PT P2** course_lessons.cloudinary_video_url *(hand-written)* |
 
 Run `npm run db:migrate` to apply; `npm run seed:foods` and `npm run seed:exercises`
 to populate catalogs. (Quest catalog and article categories are seeded by their migrations,

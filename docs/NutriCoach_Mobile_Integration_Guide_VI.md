@@ -28,6 +28,7 @@
    - [Dashboard](#dashboard-apiv1dashboard)
    - [Payment](#payment-apiv1payment)
    - [Workout](#workout-apiv1workout)
+   - [PT Courses](#pt-courses-apiv1pt-chỉ-role-pt)
    - [Content](#content-apiv1content)
    - [Quests](#quests-apiv1quests)
    - [Scan](#scan-apiv1scan)
@@ -945,6 +946,28 @@ Lưu ý: Set logs không thể chỉnh sửa trong v1.
 
 ---
 
+### PT Courses `/api/v1/pt` (chỉ role PT)
+
+Chỉ liệt kê các endpoint media mà app PT cần. Các endpoint PT khác (verification, CRUD khóa học, students, earnings) yêu cầu role PT — xem `API_CURRENT.md` / Swagger.
+
+#### POST `/pt/courses/:id/thumbnail`
+
+Upload ảnh bìa khóa học. **`multipart/form-data`**, field `thumbnail` (JPEG/PNG/WebP, ≤5MB).
+
+**Response:** `200 OK` — `{ courseId, thumbnailUrl }`. Cập nhật `courses.thumbnailUrl`.
+
+---
+
+#### POST `/pt/courses/:id/lessons/:lessonId/video`
+
+Upload video bài học. **`multipart/form-data`**, field `video` (MP4, ≤100MB).
+
+**Response:** `200 OK` — `{ lessonId, videoUrl }`. Cập nhật `course_lessons.cloudinaryVideoUrl`.
+
+> 📌 Sau khi upload, `GET /pt/courses/:id` trả về `cloudinaryVideoUrl` cho lesson tương ứng (xem §5 — Video Bài Học Khóa Học PT).
+
+---
+
 ### Content `/api/v1/content`
 
 Tất cả đều yêu cầu xác thực.
@@ -1100,6 +1123,7 @@ Lưu ý: `quest` là `null` nếu đã đạt giới hạn ngày của AI_SCAN (
 | `INVALID_TOKEN` | 401 | JWT xác minh thất bại hoặc người dùng đã xóa | Thử refresh → nếu thất bại, chuyển đến đăng nhập |
 | `TOKEN_EXPIRED` | 401 | Refresh token quá `expires_at` | Chuyển đến trang đăng nhập |
 | `ACCOUNT_DELETED` | 401 | Người dùng đã bị xóa mềm | Hiển thị thông báo "tài khoản đã xóa", xóa dữ liệu cục bộ |
+| `ACCOUNT_BANNED` | 401 | Tài khoản bị admin khóa (`is_banned`) — trả về cả khi đăng nhập và trên mọi request đã xác thực | **Force logout**: xóa token cục bộ, hiển thị `error.message` (chứa lý do khóa) |
 | `INVALID_CREDENTIALS` | 401 | Sai email/mật khẩu khi đăng nhập | Hiển thị "thông tin đăng nhập không đúng" |
 
 ### Lỗi Validation
@@ -1154,6 +1178,8 @@ func handleError(response):
       redirectToLogin()
     case "ACCOUNT_DELETED":
       clearLocalDataAndShowMessage()
+    case "ACCOUNT_BANNED":
+      clearLocalDataAndShowMessage(response.error.message)  // force logout, hiển thị lý do khóa
     case "USER_METRICS_NOT_FOUND":
       navigateTo(OnboardingScreen)
     case "VALIDATION_ERROR":
@@ -1234,6 +1260,14 @@ Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
 - `weightKg`, `targetWeightKg` và các cột `numeric` khác trong DB có thể trả về dạng string trong một số ngữ cảnh thô — API chuyển đổi sang số trong response, nhưng hãy cẩn thận khi lưu trữ cục bộ.
 - `calories` trong food logs luôn là số nguyên.
 - Giá trị macro (`proteinG`, `carbsG`, `fatG`) trong food logs là số thực (nullable trong DB nhưng được chuyển về 0 ở API boundary).
+
+### Video Bài Học Khóa Học PT
+
+Response của `GET /pt/courses/:id` (view của chủ sở hữu PT) — mỗi `lesson` giờ có thêm trường **`cloudinaryVideoUrl`** (string, nullable) bên cạnh `youtubeVideoId`.
+
+- Khi render video bài học: nếu **`cloudinaryVideoUrl`** có giá trị → dùng trình phát video native (URL MP4 trực tiếp); nếu **`youtubeVideoId`** có giá trị → dùng YouTube embed.
+- Nếu cả hai cùng có giá trị → **ưu tiên `cloudinaryVideoUrl`**.
+- `cloudinaryVideoUrl` chỉ xuất hiện trong view của PT chủ sở hữu; catalog công khai (`GET /content/pt-courses/:id`) **không** trả trường này.
 
 ### Validation `strict()`
 

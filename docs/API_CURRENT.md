@@ -18,15 +18,16 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
   - `401 UNAUTHORIZED` — missing/invalid `Authorization` header or empty Bearer value
   - `401 INVALID_TOKEN` — token failed JWT verify **or** referenced user row no longer exists
   - `401 ACCOUNT_DELETED` — user's `deleted_at` is not null
+  - `401 ACCOUNT_BANNED` — user's `is_banned` is true; the `message` includes the ban reason (Vietnamese). Also returned by `POST /auth/login` for a banned account. Clients should force-logout on this code.
   - `500 INTERNAL_ERROR` — DB lookup for the user failed
 - **Any endpoint with a Zod schema** can return `400 VALIDATION_ERROR` if validation fails; the `message` is the first failing rule.
 - **Unhandled errors** in any controller return `500 INTERNAL_ERROR`.
 
 ## Implementation status
 
-- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (18), Admin/PT-review (7), Content (12 — 2 PT-course + 10 articles), Quests (14 — 7 user + 7 admin), Scan (1)** — **93 endpoints total** (+ `GET /health`)
+- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (20), Admin/PT-review (7), Admin user-mgmt (6), Content (13 — 2 PT-course + 11 articles), Quests (18 — 7 user + 11 admin), Scan (1)** — **106 endpoints total** (+ `GET /health`)
 
-> **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 21 handlers spanning three logical modules (PT review 7 + article read/write 7 + quest admin 7 incl. 3 redemption); the table above groups by logical module. PT is **18** (P1 4, P2 courses 7, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
+> **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 32 handlers spanning four logical modules (PT review 7 + article read/write 8 incl. `upload-image` + quest admin 11 incl. 3 redemption + 4 rewards CRUD + user management 6 incl. analytics); the table above groups by logical module. PT is **20** (P1 4, P2 courses 9 incl. thumbnail + lesson video upload, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
 
 > **⚠️ Documentation gap:** the **9 Content/articles endpoints** (migration 0013 — `GET/POST /content/articles*`, `GET /content/categories`, `POST/PATCH /admin/articles*`, `POST /admin/categories`) are wired, tested, and documented in **Swagger (`/api-docs`)**, but their per-endpoint request/response blocks are **not yet in this file**. The Quest endpoints below ARE fully documented. Tracked as a follow-up.
 
@@ -1374,12 +1375,13 @@ Own course detail with full curriculum. Non-owner gets 404 (don't leak).
       "totalLessons": 12, "publishedAt": null, "archivedAt": null,
       "modules": [
         { "id": "uuid", "title": "Tuần 1", "displayOrder": 0,
-          "lessons": [ { "id": "uuid", "title": "Day 1", "youtubeVideoId": "abc123", "durationMin": 25, "displayOrder": 0 } ] }
+          "lessons": [ { "id": "uuid", "title": "Day 1", "youtubeVideoId": "abc123", "cloudinaryVideoUrl": null, "durationMin": 25, "displayOrder": 0 } ] }
       ],
       "createdAt": "...", "updatedAt": "..."
     }
   }
   ```
+  Each lesson carries **`cloudinaryVideoUrl`** (nullable) in the owner view — the URL of a video uploaded via `POST /pt/courses/:id/lessons/:lessonId/video`. It is **owner-only**: the public catalog (`GET /content/pt-courses/:id`) omits it so the paid CDN link never leaks.
 - Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 COURSE_NOT_FOUND`, `500 INTERNAL_ERROR`
 
 ---
@@ -1408,14 +1410,14 @@ Atomically replace all modules + lessons. **Forbidden once any non-refunded enro
 
 ### POST /api/v1/pt/courses/:id/publish
 
-Transition `DRAFT → PUBLISHED`. Requires at least one lesson with a non-null `youtubeVideoId`.
+Transition `DRAFT → PUBLISHED`. Every lesson must have a video — **either** a `youtubeVideoId` **or** an uploaded `cloudinaryVideoUrl`.
 
 - Auth: required (PT role)
 - Response: `200 OK` — course summary with `status: "PUBLISHED"` and `publishedAt` set
 - Errors:
   - `404 COURSE_NOT_FOUND`
   - `409 INVALID_COURSE_STATUS_TRANSITION` — course is not in `DRAFT`
-  - `422 CURRICULUM_INCOMPLETE` — has lessons missing `youtubeVideoId`; error includes a `details` array of `{ lessonId, lessonTitle, moduleTitle }`
+  - `422 CURRICULUM_INCOMPLETE` — has lessons with neither `youtubeVideoId` nor `cloudinaryVideoUrl`; error includes a `details` array of `{ lessonId, lessonTitle, moduleTitle }`
 
 ---
 
@@ -1426,6 +1428,46 @@ Transition `DRAFT|PUBLISHED → ARCHIVED`. Existing enrollments retain access.
 - Auth: required (PT role)
 - Response: `200 OK` — course summary with `status: "ARCHIVED"` and `archivedAt` set
 - Errors: `404 COURSE_NOT_FOUND`, `409 INVALID_COURSE_STATUS_TRANSITION` (already archived)
+
+---
+
+### POST /api/v1/pt/courses/:id/thumbnail
+
+Upload a course cover image to Cloudinary and persist it on `courses.thumbnail_url`. Owner-only (non-owner course → 404).
+
+- Auth: required (PT role)
+- Request: `multipart/form-data` with a single file field `thumbnail`
+  - Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`
+  - Max size: 5 MB
+- Response: `200 OK`
+  ```json
+  { "success": true, "data": { "courseId": "uuid", "thumbnailUrl": "https://res.cloudinary.com/<cloud>/.../course-thumbnails/...jpg" } }
+  ```
+- Errors:
+  - `400 NO_FILE_PROVIDED` / `INVALID_FILE_TYPE` / `FILE_TOO_LARGE` / `INVALID_FIELD_NAME` (field not named `thumbnail`) / `EMPTY_FILE`
+  - `403 FORBIDDEN` (not a PT)
+  - `404 COURSE_NOT_FOUND`
+  - `500 UPLOAD_FAILED` — Cloudinary upload failed
+
+---
+
+### POST /api/v1/pt/courses/:id/lessons/:lessonId/video
+
+Upload a lesson video to Cloudinary and persist it on `course_lessons.cloudinary_video_url`. The lesson must belong to the course (verified via `lesson → module → course`) and the course must be owned by the caller. Provides an alternative to `youtubeVideoId` for satisfying the publish requirement.
+
+- Auth: required (PT role)
+- Request: `multipart/form-data` with a single file field `video`
+  - Allowed MIME type: `video/mp4`
+  - Max size: 100 MB
+- Response: `200 OK`
+  ```json
+  { "success": true, "data": { "lessonId": "uuid", "videoUrl": "https://res.cloudinary.com/<cloud>/video/upload/.../course-videos/...mp4" } }
+  ```
+- Errors:
+  - `400 NO_FILE_PROVIDED` / `INVALID_FILE_TYPE` (only MP4) / `FILE_TOO_LARGE` (>100 MB) / `INVALID_FIELD_NAME` (field not named `video`) / `EMPTY_FILE`
+  - `403 FORBIDDEN` (not a PT)
+  - `404 COURSE_NOT_FOUND` / `LESSON_NOT_FOUND`
+  - `500 UPLOAD_FAILED` — Cloudinary upload failed
 
 ---
 
@@ -1657,6 +1699,91 @@ Admin draft preview — returns full article detail by id **regardless of status
 - Request: path — `id` (UUID)
 - Response: `200 OK` — article detail `{ id, slug, title, excerpt, body, category, author, tags, readingTimeMin, viewCount, publishedAt, status }`; `status` is UPPERCASE (`DRAFT|PUBLISHED|ARCHIVED`)
 - Errors: `400 VALIDATION_ERROR` (id not a UUID), `404 ARTICLE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/users
+
+List and search users (soft-deleted users excluded). Ordered by `createdAt` DESC.
+
+- Request: query
+  - `search` (optional): ILIKE match on `email` or `fullName` (LIKE metacharacters escaped)
+  - `role` (optional): enum `USER|PT|ADMIN`
+  - `isBanned` (optional): `"true" | "false"`
+  - `page` (default 1), `limit` (default 20)
+- Response: `200 OK` — paginated. Each user: `{ id, fullName, email, phone, role, tier, emailVerified, isBanned, banReason, bannedAt, createdAt }` (no `password`, no `deletedAt`)
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/users/:id
+
+Full user profile with body metrics, points balance, and active subscription.
+
+- Request: path — `id` (UUID)
+- Response: `200 OK` — the list shape **plus** `metrics` (same fields as `GET /users/me` metrics, or `null`), `totalPoints` (int), and `subscription` (`{ plan, status, expiresAt }` or `null`)
+- Errors: `404 USER_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/users/:id/ban
+
+Ban a user account and force logout. In one DB transaction: sets `is_banned = true` + `ban_reason` + `banned_at`, and deletes all of the target's refresh tokens. The auth middleware then rejects the user with `401 ACCOUNT_BANNED` on the next request.
+
+- Request: body — `reason`: string, **min 10 chars** (required)
+- Response: `200 OK` — `{ "id": "uuid", "isBanned": true }`
+- Errors:
+  - `400 VALIDATION_ERROR` / `400 CANNOT_BAN_SELF` (admin's own id)
+  - `403 CANNOT_TARGET_ADMIN` (target is another admin)
+  - `404 USER_NOT_FOUND`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/users/:id/unban
+
+Clears `is_banned`, `ban_reason`, `banned_at`.
+
+- Request: path — `id` (UUID)
+- Response: `200 OK` — `{ "id": "uuid", "isBanned": false }`
+- Errors: `404 USER_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/admin/users/:id/role
+
+Change a user's role.
+
+- Request: body — `role`: enum `USER|PT|ADMIN` (required)
+- Response: `200 OK` — `{ "id": "uuid", "role": "PT" }`
+- Note: `req.user.role` comes from the JWT, so a role change is **not effective immediately** — the user must re-login / refresh before the new role takes effect (see CODEBASE_CONTEXT §5 Auth).
+- Errors:
+  - `400 VALIDATION_ERROR` / `400 CANNOT_CHANGE_OWN_ROLE` (admin's own id)
+  - `403 CANNOT_TARGET_ADMIN` (target is another admin)
+  - `404 USER_NOT_FOUND`
+  - `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/admin/analytics/users
+
+User growth analytics over a date range. Day buckets are computed in the `Asia/Ho_Chi_Minh` timezone.
+
+- Request: query — `range`: enum `7d|30d|90d` (default `30d`)
+- Response: `200 OK`
+  ```json
+  {
+    "success": true,
+    "data": {
+      "range": "30d",
+      "totalUsers": 1284,
+      "newUsers": 96,
+      "data": [ { "date": "2026-05-20", "count": 4 }, { "date": "2026-05-21", "count": 7 } ]
+    }
+  }
+  ```
+  `totalUsers` is the all-time non-deleted count; `newUsers` is the sum of `data[].count` within the range; `data` contains only days that had ≥1 signup.
+- Errors: `400 VALIDATION_ERROR` (invalid range), `403 FORBIDDEN`, `500 INTERNAL_ERROR`
 
 ---
 
@@ -1983,6 +2110,50 @@ Flips `PENDING → REJECTED` and **refunds** `pointsCost` to the user's `user_po
 
 ---
 
+### GET /api/v1/admin/quests/rewards
+
+Admin catalog management — lists **all** rewards including inactive ones (the user-facing `GET /quests/rewards` returns only active). Tier (`SMALL`/`LARGE`) is derived from `pointsRequired`, never stored.
+
+- Auth: required (`requireRole('admin')`)
+- Request: query — `page` (default 1), `limit` (1–100, default 20)
+- Response: `200 OK` — paginated rewards `{ id, name, description, pointsRequired, tier, isActive, createdAt, updatedAt }`
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/quests/rewards
+
+Create a reward.
+
+- Auth: required (`requireRole('admin')`)
+- Request: body — `name` (required), `description` (optional), `pointsRequired` (int > 0, required)
+- Response: `201 Created` — the created reward
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/admin/quests/rewards/:id
+
+Partial update — any of `name`, `description`, `pointsRequired`, `isActive`. Use `isActive: false` to deactivate a reward that has redemptions (see DELETE).
+
+- Auth: required (`requireRole('admin')`)
+- Request: path — `id` (UUID); body — at least one of the editable fields
+- Response: `200 OK` — the updated reward
+- Errors: `400 VALIDATION_ERROR`, `404 REWARD_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### DELETE /api/v1/admin/quests/rewards/:id
+
+Soft-delete — sets `isActive = false`. **Refuses** (409) if the reward has existing redemption rows; deactivate via PATCH instead.
+
+- Auth: required (`requireRole('admin')`)
+- Request: path — `id` (UUID)
+- Response: `200 OK` — `{ id, isActive: false }`
+- Errors: `404 REWARD_NOT_FOUND`, `409 REWARD_HAS_REDEMPTIONS`, `500 INTERNAL_ERROR`
+
+---
+
 ## Error code reference
 
 | Code | Source | Default status |
@@ -1994,18 +2165,24 @@ Flips `PENDING → REJECTED` and **refunds** `pointsCost` to the user's `user_po
 | INVALID_JSON | payment webhook (unparseable body) | 400 |
 | REFERENCE_REQUIRED | quests trigger (WORKOUT_DONE without referenceId) | 400 |
 | INVALID_REFERENCE | quests trigger (WORKOUT_DONE session not found / not yours / wrong date) | 400 |
-| NO_FILE_PROVIDED | users avatar upload | 400 |
-| INVALID_FILE_TYPE | users avatar upload | 400 |
-| FILE_TOO_LARGE | users avatar upload | 400 |
+| NO_FILE_PROVIDED | users avatar upload / pt course thumbnail + lesson video | 400 |
+| INVALID_FILE_TYPE | users avatar upload / pt course thumbnail + lesson video | 400 |
+| FILE_TOO_LARGE | users avatar upload / pt course thumbnail + lesson video | 400 |
+| INVALID_FIELD_NAME | pt course thumbnail + lesson video (wrong multipart field name) | 400 |
+| EMPTY_FILE | pt course thumbnail + lesson video (zero-byte file) | 400 |
+| CANNOT_BAN_SELF | admin ban user (own id) | 400 |
+| CANNOT_CHANGE_OWN_ROLE | admin change role (own id) | 400 |
 | UNAUTHORIZED | auth middleware / authed controllers | 401 |
 | INVALID_TOKEN | auth middleware (bad JWT or user gone) / refresh | 401 |
 | ACCOUNT_DELETED | auth middleware (`deleted_at` not null) | 401 |
+| ACCOUNT_BANNED | auth middleware / login (`is_banned` true; message includes ban reason) | 401 |
 | TOKEN_EXPIRED | refresh | 401 |
 | INVALID_CREDENTIALS | login | 401 |
 | INVALID_CURRENT_PASSWORD | change-password | 401 |
 | INVALID_PASSWORD | delete account | 401 |
 | INVALID_SIGNATURE | payment webhook (bad PayOS signature) — swallowed, returns 200 | 401 (internal) |
 | FORBIDDEN | requireRole middleware (wrong role for PT/admin routes) | 403 |
+| CANNOT_TARGET_ADMIN | admin ban / change role (target is another admin) | 403 |
 | USER_NOT_FOUND | auth/users/dashboard services (defensive fallback after middleware) | 401 (auth) / 404 (users, dashboard) |
 | USER_METRICS_NOT_FOUND | users metrics | 404 |
 | FOOD_LOG_NOT_FOUND | nutrition update/delete | 404 |
@@ -2035,6 +2212,7 @@ Flips `PENDING → REJECTED` and **refunds** `pointsCost` to the user's `user_po
 | QUEST_ID_EXISTS | admin quests create (duplicate id) | 409 |
 | INSUFFICIENT_POINTS | quests redeem (balance < cost; atomic deduct matched 0 rows) | 409 |
 | REDEMPTION_ALREADY_REVIEWED | admin redemption fulfill/reject (status not pending) | 409 |
+| REWARD_HAS_REDEMPTIONS | admin reward delete (reward has redemption rows; deactivate via PATCH) | 409 |
 | INVALID_ARTICLE_STATUS_TRANSITION | admin article publish/archive (illegal transition) | 409 |
 | CATEGORY_SLUG_EXISTS | admin categories create (duplicate slug) | 409 |
 | CURRICULUM_INCOMPLETE | pt course publish (lessons missing youtubeVideoId); includes `details` array | 422 |

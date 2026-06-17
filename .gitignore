@@ -51,3 +51,7 @@ Thumbs.db
 # ============================
 # Keep migrations, ignore studio cache
 .drizzle/
+
+_bmad*
+.claude/
+

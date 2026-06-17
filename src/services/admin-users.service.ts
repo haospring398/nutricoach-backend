@@ -35,7 +35,8 @@ export const adminListUsers = async (input: AdminUsersQuery) => {
   const conditions = [isNull(users.deletedAt)];
 
   if (input.search) {
-    const pattern = `%${input.search}%`;
+    const escaped = input.search.replace(/[%_\\]/g, '\\$&');
+    const pattern = `%${escaped}%`;
     const searchCond = or(ilike(users.email, pattern), ilike(users.fullName, pattern));
     if (searchCond) conditions.push(searchCond);
   }
@@ -160,18 +161,20 @@ export const adminBanUser = async (
     throw new ApiError(404, 'USER_NOT_FOUND', 'User not found');
   }
 
-  await db
-    .update(users)
-    .set({
-      isBanned: true,
-      banReason: input.reason,
-      bannedAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(users.id, targetId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(users)
+      .set({
+        isBanned: true,
+        banReason: input.reason,
+        bannedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, targetId));
 
-  // Force logout: delete all refresh tokens from DB (not Redis — tokens live in refresh_tokens table)
-  await db.delete(refreshTokens).where(eq(refreshTokens.userId, targetId));
+    // Force logout: delete all refresh tokens atomically with the ban update
+    await tx.delete(refreshTokens).where(eq(refreshTokens.userId, targetId));
+  });
 
   return { id: targetId, isBanned: true };
 };

@@ -169,6 +169,14 @@ export const loginUser = async (
     );
   }
 
+  if (user.isBanned) {
+    throw new AuthError(
+      401,
+      'ACCOUNT_BANNED',
+      `Tài khoản của bạn đã bị khóa. Lý do: ${user.banReason ?? 'Không có lý do'}`,
+    );
+  }
+
   const tokens = await issueTokensFor(user);
 
   return {
@@ -221,6 +229,8 @@ export const rotateRefreshToken = async (
       id: users.id,
       email: users.email,
       role: users.role,
+      isBanned: users.isBanned,
+      banReason: users.banReason,
     })
     .from(users)
     .where(eq(users.id, payload.sub))
@@ -228,6 +238,14 @@ export const rotateRefreshToken = async (
 
   if (!user) {
     throw new AuthError(401, 'INVALID_TOKEN', 'User no longer exists');
+  }
+
+  if (user.isBanned) {
+    throw new AuthError(
+      401,
+      'ACCOUNT_BANNED',
+      `Tài khoản của bạn đã bị khóa. Lý do: ${user.banReason ?? 'Không có lý do'}`,
+    );
   }
 
   await db.delete(refreshTokens).where(eq(refreshTokens.id, stored.id));

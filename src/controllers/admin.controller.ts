@@ -10,9 +10,13 @@ import {
   rejectVerification,
 } from '../services/pt.service';
 import {
+  adminCreateReward,
+  adminDeleteReward,
   adminFulfillRedemption,
   adminListRedemptions,
+  adminListRewards,
   adminRejectRedemption,
+  adminUpdateReward,
 } from '../services/quest.service';
 import {
   approveVerificationBodySchema,
@@ -21,10 +25,14 @@ import {
   verificationIdParamSchema,
 } from '../validations/pt.validation';
 import {
+  adminListRewardsQuerySchema,
   adminRedemptionsQuerySchema,
+  createRewardSchema,
   fulfillRedemptionSchema,
   redemptionIdParamSchema,
   rejectRedemptionSchema,
+  rewardIdParamSchema,
+  updateRewardSchema,
 } from '../validations/quest.validation';
 
 const sendError = (
@@ -227,6 +235,61 @@ export const uploadArticleImage = async (
 
     const imageUrl = await uploadArticleImageService(req.file);
     sendSuccess(res, 200, { imageUrl });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// ── Rewards catalog CRUD ─────────────────────────────────────
+
+export const listAdminRewards = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const query = adminListRewardsQuerySchema.parse(req.query);
+    const { items, pagination } = await adminListRewards(query);
+    res.status(200).json({ success: true, data: items, pagination });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const createReward = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const body = createRewardSchema.parse(req.body);
+    const data = await adminCreateReward(body);
+    sendSuccess(res, 201, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const updateReward = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { id } = rewardIdParamSchema.parse(req.params);
+    const body = updateRewardSchema.parse(req.body);
+    const data = await adminUpdateReward(id, body);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const deleteReward = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { id } = rewardIdParamSchema.parse(req.params);
+    const data = await adminDeleteReward(id);
+    sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);
   }

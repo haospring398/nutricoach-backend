@@ -139,3 +139,38 @@ export const rejectRedemptionSchema = z
 export type RedeemRewardInput = z.infer<typeof redeemRewardSchema>;
 export type MyRedemptionsQuery = z.infer<typeof myRedemptionsQuerySchema>;
 export type AdminRedemptionsQuery = z.infer<typeof adminRedemptionsQuerySchema>;
+
+// ── Admin: rewards catalog CRUD ───────────────────────────────
+
+export const adminListRewardsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export const createRewardSchema = z
+  .object({
+    name: z.string().min(2).max(100),
+    description: z.string().max(500).optional(),
+    pointsRequired: z.number().int().min(1),
+  })
+  .strict();
+
+export const updateRewardSchema = z
+  .object({
+    name: z.string().min(2).max(100).optional(),
+    description: z.string().max(500).optional(),
+    pointsRequired: z.number().int().min(1).optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+  .refine((obj) => Object.keys(obj).length > 0, {
+    message: 'At least one field is required',
+  });
+
+export const rewardIdParamSchema = z.object({
+  id: z.string().uuid({ message: 'reward id must be a valid UUID' }),
+});
+
+export type AdminListRewardsQuery = z.infer<typeof adminListRewardsQuerySchema>;
+export type CreateRewardInput = z.infer<typeof createRewardSchema>;
+export type UpdateRewardInput = z.infer<typeof updateRewardSchema>;

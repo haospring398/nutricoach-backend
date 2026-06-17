@@ -4,12 +4,16 @@ import { requireRole } from '../middlewares/role.middleware';
 import { uploadSingle } from '../middlewares/upload.middleware';
 import {
   approvePtVerificationHandler,
+  createReward,
+  deleteReward,
   fulfillRewardRedemption,
   getPtVerificationByIdHandler,
+  listAdminRewards,
   listPtVerificationsHandler,
   listRewardRedemptions,
   rejectPtVerificationHandler,
   rejectRewardRedemption,
+  updateReward,
   uploadArticleImage,
 } from '../controllers/admin.controller';
 import {
@@ -969,6 +973,146 @@ router.patch('/quests/redemptions/:id/reject', rejectRewardRedemption);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
+// ── Rewards catalog (admin) ───────────────────────────────────
+// Registered before /quests/:id so literal segments are matched first.
+
+/**
+ * @openapi
+ * /admin/quests/rewards:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all rewards (including inactive)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+ *     responses:
+ *       200:
+ *         description: Paginated rewards list (all statuses, tier derived)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       403:
+ *         description: Forbidden (not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *   post:
+ *     tags: [Admin]
+ *     summary: Create a new reward
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateRewardBody'
+ *     responses:
+ *       201:
+ *         description: Reward created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Forbidden (not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/quests/rewards', listAdminRewards);
+router.post('/quests/rewards', createReward);
+
+/**
+ * @openapi
+ * /admin/quests/rewards/{id}:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Update a reward (name, description, pointsRequired, isActive)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/UpdateRewardBody'
+ *     responses:
+ *       200:
+ *         description: Updated reward
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: Reward not found (REWARD_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *   delete:
+ *     tags: [Admin]
+ *     summary: Soft-delete a reward (sets isActive=false)
+ *     description: >
+ *       Refuses deletion if the reward has existing redemption rows (409
+ *       REWARD_HAS_REDEMPTIONS). Use PATCH isActive=false to deactivate
+ *       a reward that has been redeemed.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: "Reward deactivated — returns { id, isActive: false }"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: Reward not found (REWARD_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Reward has existing redemptions (REWARD_HAS_REDEMPTIONS)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch('/quests/rewards/:id', updateReward);
+router.delete('/quests/rewards/:id', deleteReward);
+
 router.patch('/quests/:id', adminUpdateQuestHandler);
 
 export default router;

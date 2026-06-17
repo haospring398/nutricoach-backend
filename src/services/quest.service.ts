@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { and, desc, eq, gte, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm';
 import { db } from '../config/db';
 import { ApiError } from '../lib/api-error';
 import { sendRewardVoucherEmail } from '../lib/email';
@@ -16,6 +16,7 @@ import {
   userPoints,
   type DailyMissionLog,
   type Quest,
+  type Reward,
 } from '../models/quest.model';
 
 export class QuestError extends ApiError {}
@@ -765,7 +766,7 @@ export const adminFulfillRedemption = async (
     return presentRedemption(updated);
   });
 
-// ── Admin: reject (PENDING → REJECTED) + refund points ────────
+// ── Admin: reject (PENDING → REJECTED) + refund points ───────
 export const adminRejectRedemption = async (
   adminId: string,
   redemptionId: string,
@@ -823,3 +824,120 @@ export const adminRejectRedemption = async (
 
     return presentRedemption(updated);
   });
+
+// ══ Rewards catalog CRUD (admin) ══════════════════════════════
+
+const presentReward = (r: Reward) => ({
+  id: r.id,
+  name: r.name,
+  description: r.description,
+  pointsRequired: r.pointsRequired,
+  tier: rewardTier(r.pointsRequired),
+  isActive: r.isActive,
+  createdAt: r.createdAt,
+});
+
+export const adminListRewards = async (input: {
+  page: number;
+  limit: number;
+}) => {
+  const offset = (input.page - 1) * input.limit;
+
+  const [countRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(rewards);
+
+  const rows = await db
+    .select()
+    .from(rewards)
+    .orderBy(asc(rewards.pointsRequired), asc(rewards.createdAt))
+    .limit(input.limit)
+    .offset(offset);
+
+  const totalItems = countRow?.count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalItems / input.limit));
+  return {
+    items: rows.map(presentReward),
+    pagination: {
+      page: input.page,
+      limit: input.limit,
+      totalItems,
+      totalPages,
+      hasNext: input.page < totalPages,
+      hasPrev: input.page > 1,
+    },
+  };
+};
+
+export const adminCreateReward = async (data: {
+  name: string;
+  description?: string;
+  pointsRequired: number;
+}): Promise<ReturnType<typeof presentReward>> => {
+  const [created] = await db
+    .insert(rewards)
+    .values({
+      name: data.name,
+      description: data.description ?? '',
+      pointsRequired: data.pointsRequired,
+    })
+    .returning();
+  return presentReward(created!);
+};
+
+export const adminUpdateReward = async (
+  id: string,
+  data: Partial<{
+    name: string;
+    description: string;
+    pointsRequired: number;
+    isActive: boolean;
+  }>,
+): Promise<ReturnType<typeof presentReward>> => {
+  const [existing] = await db
+    .select({ id: rewards.id })
+    .from(rewards)
+    .where(eq(rewards.id, id));
+  if (!existing) {
+    throw new QuestError(404, 'REWARD_NOT_FOUND', 'Reward not found');
+  }
+
+  const [updated] = await db
+    .update(rewards)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(rewards.id, id))
+    .returning();
+  return presentReward(updated!);
+};
+
+export const adminDeleteReward = async (
+  id: string,
+): Promise<{ id: string; isActive: false }> => {
+  const [existing] = await db
+    .select({ id: rewards.id })
+    .from(rewards)
+    .where(eq(rewards.id, id));
+  if (!existing) {
+    throw new QuestError(404, 'REWARD_NOT_FOUND', 'Reward not found');
+  }
+
+  // Refuse if redemption rows exist; suggest PATCH isActive=false to deactivate instead.
+  const [redemptionCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(rewardRedemptions)
+    .where(eq(rewardRedemptions.rewardId, id));
+  if ((redemptionCount?.count ?? 0) > 0) {
+    throw new QuestError(
+      409,
+      'REWARD_HAS_REDEMPTIONS',
+      'Reward has existing redemptions and cannot be deleted. Use PATCH isActive=false to deactivate it instead.',
+    );
+  }
+
+  await db
+    .update(rewards)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(rewards.id, id));
+
+  return { id, isActive: false };
+};

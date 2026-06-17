@@ -212,15 +212,13 @@ export const uploadArticleImage = async (
     const uploadError = (req as Request & { uploadError?: unknown })
       .uploadError;
     if (uploadError) {
-      if (
-        uploadError instanceof multer.MulterError &&
-        uploadError.code === 'LIMIT_FILE_SIZE'
-      ) {
-        throw new ApiError(
-          400,
-          'FILE_TOO_LARGE',
-          'Image must be 5 MB or smaller',
-        );
+      if (uploadError instanceof multer.MulterError) {
+        if (uploadError.code === 'LIMIT_FILE_SIZE') {
+          throw new ApiError(400, 'FILE_TOO_LARGE', 'Image must be 5 MB or smaller');
+        }
+        if (uploadError.code === 'LIMIT_UNEXPECTED_FILE') {
+          throw new ApiError(400, 'INVALID_FIELD_NAME', 'Use field name "image"');
+        }
       }
       throw uploadError; // ApiError (INVALID_FILE_TYPE) or an unexpected error
     }
@@ -231,6 +229,10 @@ export const uploadArticleImage = async (
         'NO_FILE_PROVIDED',
         'No image file provided in field "image"',
       );
+    }
+
+    if (req.file.size === 0) {
+      throw new ApiError(400, 'EMPTY_FILE', 'Uploaded file is empty');
     }
 
     const imageUrl = await uploadArticleImageService(req.file);

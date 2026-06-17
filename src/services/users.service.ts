@@ -536,7 +536,8 @@ export const uploadAvatar = async (
       );
       stream.end(file.buffer);
     });
-  } catch {
+  } catch (err) {
+    console.error('[uploadAvatar] Cloudinary error:', err);
     throw new ApiError(500, 'UPLOAD_FAILED', 'Failed to upload avatar image');
   }
 

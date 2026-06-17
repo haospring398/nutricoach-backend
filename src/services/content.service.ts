@@ -622,7 +622,8 @@ export const uploadArticleImage = async (
       );
       stream.end(file.buffer);
     });
-  } catch {
+  } catch (err) {
+    console.error('[uploadArticleImage] Cloudinary error:', err);
     throw new ContentError(500, 'UPLOAD_FAILED', 'Failed to upload article image');
   }
 };

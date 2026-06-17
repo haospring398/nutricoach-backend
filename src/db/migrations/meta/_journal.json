@@ -120,6 +120,13 @@
       "when": 1779750000000,
       "tag": "0016_reward_redemptions",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1779860000000,
+      "tag": "0017_admin_user_management",
+      "breakpoints": true
     }
   ]
 }

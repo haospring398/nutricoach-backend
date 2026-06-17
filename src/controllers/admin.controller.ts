@@ -10,6 +10,14 @@ import {
   rejectVerification,
 } from '../services/pt.service';
 import {
+  adminBanUser,
+  adminChangeUserRole,
+  adminGetUser,
+  adminListUsers,
+  adminUnbanUser,
+  adminUsersAnalytics,
+} from '../services/admin-users.service';
+import {
   adminCreateReward,
   adminDeleteReward,
   adminFulfillRedemption,
@@ -24,6 +32,13 @@ import {
   rejectVerificationBodySchema,
   verificationIdParamSchema,
 } from '../validations/pt.validation';
+import {
+  adminAnalyticsQuerySchema,
+  adminBanUserSchema,
+  adminChangeRoleSchema,
+  adminUserIdParamSchema,
+  adminUsersQuerySchema,
+} from '../validations/admin.validation';
 import {
   adminListRewardsQuerySchema,
   adminRedemptionsQuerySchema,
@@ -291,6 +306,83 @@ export const deleteReward = async (
   try {
     const { id } = rewardIdParamSchema.parse(req.params);
     const data = await adminDeleteReward(id);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// ── Admin user management ─────────────────────────────────────
+
+export const listUsers = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const query = adminUsersQuerySchema.parse(req.query);
+    const { items, pagination } = await adminListUsers(query);
+    res.status(200).json({ success: true, data: items, pagination });
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const getUserById = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { id } = adminUserIdParamSchema.parse(req.params);
+    const data = await adminGetUser(id);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const banUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const adminId = requireUser(req, res);
+    if (!adminId) return;
+    const { id } = adminUserIdParamSchema.parse(req.params);
+    const body = adminBanUserSchema.parse(req.body);
+    const data = await adminBanUser(adminId, id, body);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const unbanUser = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = adminUserIdParamSchema.parse(req.params);
+    const data = await adminUnbanUser(id);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const changeUserRole = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const adminId = requireUser(req, res);
+    if (!adminId) return;
+    const { id } = adminUserIdParamSchema.parse(req.params);
+    const body = adminChangeRoleSchema.parse(req.body);
+    const data = await adminChangeUserRole(adminId, id, body);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const getUsersAnalytics = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const query = adminAnalyticsQuerySchema.parse(req.query);
+    const data = await adminUsersAnalytics(query);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

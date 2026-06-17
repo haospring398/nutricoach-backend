@@ -46,7 +46,12 @@ export const authenticate = async (
 
   try {
     const [user] = await db
-      .select({ id: users.id, deletedAt: users.deletedAt })
+      .select({
+        id: users.id,
+        deletedAt: users.deletedAt,
+        isBanned: users.isBanned,
+        banReason: users.banReason,
+      })
       .from(users)
       .where(eq(users.id, payload.sub))
       .limit(1);
@@ -68,6 +73,17 @@ export const authenticate = async (
         error: {
           code: 'ACCOUNT_DELETED',
           message: 'Tài khoản đã bị xóa',
+        },
+      });
+      return;
+    }
+
+    if (user.isBanned) {
+      res.status(401).json({
+        success: false,
+        error: {
+          code: 'ACCOUNT_BANNED',
+          message: `Tài khoản của bạn đã bị khóa. Lý do: ${user.banReason ?? 'Không có lý do'}`,
         },
       });
       return;

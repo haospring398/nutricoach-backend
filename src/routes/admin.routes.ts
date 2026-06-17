@@ -4,15 +4,21 @@ import { requireRole } from '../middlewares/role.middleware';
 import { uploadSingle } from '../middlewares/upload.middleware';
 import {
   approvePtVerificationHandler,
+  banUser,
+  changeUserRole,
   createReward,
   deleteReward,
   fulfillRewardRedemption,
   getPtVerificationByIdHandler,
+  getUserById,
+  getUsersAnalytics,
   listAdminRewards,
   listPtVerificationsHandler,
   listRewardRedemptions,
+  listUsers,
   rejectPtVerificationHandler,
   rejectRewardRedemption,
+  unbanUser,
   updateReward,
   uploadArticleImage,
 } from '../controllers/admin.controller';
@@ -1114,5 +1120,249 @@ router.patch('/quests/rewards/:id', updateReward);
 router.delete('/quests/rewards/:id', deleteReward);
 
 router.patch('/quests/:id', adminUpdateQuestHandler);
+
+/**
+ * @openapi
+ * /admin/users:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List and search users
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: role
+ *         schema:
+ *           type: string
+ *           enum: [USER, PT, ADMIN]
+ *       - in: query
+ *         name: isBanned
+ *         schema:
+ *           type: string
+ *           enum: ['true', 'false']
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *     responses:
+ *       200:
+ *         description: Paginated user list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Forbidden (not admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/users', listUsers);
+
+/**
+ * @openapi
+ * /admin/users/{id}:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Get full user profile with metrics, points and subscription
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Full user profile
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: User not found (USER_NOT_FOUND)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/users/:id', getUserById);
+
+/**
+ * @openapi
+ * /admin/users/{id}/ban:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Ban a user account and force logout
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 minLength: 10
+ *     responses:
+ *       200:
+ *         description: User banned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: CANNOT_BAN_SELF or VALIDATION_ERROR
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: USER_NOT_FOUND
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/users/:id/ban', banUser);
+
+/**
+ * @openapi
+ * /admin/users/{id}/unban:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Unban a user account
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: User unbanned
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: USER_NOT_FOUND
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/users/:id/unban', unbanUser);
+
+/**
+ * @openapi
+ * /admin/users/{id}/role:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Change user role
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [role]
+ *             properties:
+ *               role:
+ *                 type: string
+ *                 enum: [USER, PT, ADMIN]
+ *     responses:
+ *       200:
+ *         description: Role updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: CANNOT_CHANGE_OWN_ROLE or VALIDATION_ERROR
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: USER_NOT_FOUND
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch('/users/:id/role', changeUserRole);
+
+/**
+ * @openapi
+ * /admin/analytics/users:
+ *   get:
+ *     tags: [Admin]
+ *     summary: User growth analytics by date range
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: range
+ *         schema:
+ *           type: string
+ *           enum: [7d, 30d, 90d]
+ *           default: 30d
+ *     responses:
+ *       200:
+ *         description: "{ range, totalUsers, newUsers, data: [{date, count}] }"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: VALIDATION_ERROR (invalid range)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/analytics/users', getUsersAnalytics);
 
 export default router;

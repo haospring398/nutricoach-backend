@@ -28,6 +28,9 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
   updatedAt: timestamp('updated_at').notNull().defaultNow(),
   deletedAt: timestamp('deleted_at'),
+  isBanned: boolean('is_banned').notNull().default(false),
+  banReason: text('ban_reason'),
+  bannedAt: timestamp('banned_at', { withTimezone: true }),
 });
 
 export const refreshTokens = pgTable('refresh_tokens', {

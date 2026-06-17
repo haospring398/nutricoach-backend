@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { db } from '../config/db';
+import { cloudinary } from '../config/cloudinary';
 import { ApiError } from '../lib/api-error';
 import { slugify, computeReadingTimeMin } from '../lib/slug';
 import { users } from '../models/user.model';
@@ -582,5 +583,46 @@ export const createCategory = async (
       );
     }
     throw err;
+  }
+};
+
+/**
+ * Uploads an article cover image to Cloudinary and returns its secure URL.
+ * Unlike avatars, each upload gets a unique Cloudinary-generated id (no fixed
+ * public_id, no overwrite). Sized to the Open Graph 1.91:1 ratio (1200×630).
+ * The URL is returned only — persisting it onto an article is the caller's job.
+ */
+export const uploadArticleImage = async (
+  file: Express.Multer.File,
+): Promise<string> => {
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'nutricoach/articles',
+          resource_type: 'image',
+          transformation: [
+            {
+              width: 1200,
+              height: 630,
+              crop: 'fill',
+              quality: 'auto',
+              // Patch §1 (see uploadAvatar): use `format: 'auto'`, NOT `fetch_format`.
+              format: 'auto',
+            },
+          ],
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject(error ?? new Error('Empty Cloudinary response'));
+            return;
+          }
+          resolve(result.secure_url);
+        },
+      );
+      stream.end(file.buffer);
+    });
+  } catch {
+    throw new ContentError(500, 'UPLOAD_FAILED', 'Failed to upload article image');
   }
 };

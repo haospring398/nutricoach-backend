@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/auth.middleware';
 import { requireRole } from '../middlewares/role.middleware';
+import { uploadSingle } from '../middlewares/upload.middleware';
 import {
   approvePtVerificationHandler,
   fulfillRewardRedemption,
@@ -9,6 +10,7 @@ import {
   listRewardRedemptions,
   rejectPtVerificationHandler,
   rejectRewardRedemption,
+  uploadArticleImage,
 } from '../controllers/admin.controller';
 import {
   adminApproveWithdrawalHandler,
@@ -357,6 +359,66 @@ router.post('/withdrawals/:id/reject', adminRejectWithdrawalHandler);
 
 // ── Articles (write) ──────────────────────────────────────────
 // requireRole('admin') is already applied at the router level.
+
+/**
+ * @openapi
+ * /admin/articles/upload-image:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Upload an article cover image to Cloudinary
+ *     description: >
+ *       Admin-only. Accepts a single image (field `image`, multipart/form-data),
+ *       uploads it to the `nutricoach/articles` folder sized to the Open Graph
+ *       1.91:1 ratio (1200×630), and returns its URL. Does not persist the URL —
+ *       the caller stores it on an article separately.
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [image]
+ *             properties:
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: JPEG, PNG, or WebP, max 5 MB
+ *     responses:
+ *       200:
+ *         description: Image uploaded; returns the Cloudinary URL
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Missing file (NO_FILE_PROVIDED), wrong type (INVALID_FILE_TYPE), or too large (FILE_TOO_LARGE)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized (missing or invalid token)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: Forbidden (caller is not an admin)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Cloudinary upload failed (UPLOAD_FAILED)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+// Registered before the `/articles/:id` param routes so the literal path wins.
+router.post('/articles/upload-image', uploadSingle('image'), uploadArticleImage);
 
 /**
  * @openapi

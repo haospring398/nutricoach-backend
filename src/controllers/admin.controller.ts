@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express';
+import multer from 'multer';
 import { ZodError } from 'zod';
 import { ApiError } from '../lib/api-error';
+import { uploadArticleImage as uploadArticleImageService } from '../services/content.service';
 import {
   approveVerification,
   getVerificationById,
@@ -187,6 +189,44 @@ export const rejectRewardRedemption = async (
     const body = rejectRedemptionSchema.parse(req.body);
     const data = await adminRejectRedemption(adminId, id, body);
     sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const uploadArticleImage = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    // uploadSingle stashes any multer error here instead of forwarding it
+    // (no global error handler). Convert it before inspecting req.file.
+    const uploadError = (req as Request & { uploadError?: unknown })
+      .uploadError;
+    if (uploadError) {
+      if (
+        uploadError instanceof multer.MulterError &&
+        uploadError.code === 'LIMIT_FILE_SIZE'
+      ) {
+        throw new ApiError(
+          400,
+          'FILE_TOO_LARGE',
+          'Image must be 5 MB or smaller',
+        );
+      }
+      throw uploadError; // ApiError (INVALID_FILE_TYPE) or an unexpected error
+    }
+
+    if (!req.file) {
+      throw new ApiError(
+        400,
+        'NO_FILE_PROVIDED',
+        'No image file provided in field "image"',
+      );
+    }
+
+    const imageUrl = await uploadArticleImageService(req.file);
+    sendSuccess(res, 200, { imageUrl });
   } catch (err) {
     handleError(res, err);
   }

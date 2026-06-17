@@ -16,7 +16,10 @@ import {
   patchCourseHandler,
   publishCourseHandler,
   replaceCurriculumHandler,
+  uploadCourseThumbnailHandler,
+  uploadLessonVideoHandler,
 } from '../controllers/course.controller';
+import { uploadSingle, uploadVideoSingle } from '../middlewares/upload.middleware';
 import {
   getStudentDetailHandler,
   listStudentsHandler,
@@ -467,6 +470,116 @@ router.post(
   '/courses/:id/archive',
   requireRole('pt'),
   archiveCourseHandler,
+);
+
+/**
+ * @openapi
+ * /pt/courses/{id}/thumbnail:
+ *   post:
+ *     tags: [PT Courses]
+ *     summary: Upload a course thumbnail (16:9, ≤5MB)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               thumbnail:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: "Thumbnail uploaded — returns { courseId, thumbnailUrl }"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: INVALID_FILE_TYPE / FILE_TOO_LARGE / INVALID_FIELD_NAME / EMPTY_FILE
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: COURSE_NOT_FOUND
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post(
+  '/courses/:id/thumbnail',
+  requireRole('pt'),
+  uploadSingle('thumbnail'),
+  uploadCourseThumbnailHandler,
+);
+
+/**
+ * @openapi
+ * /pt/courses/{id}/lessons/{lessonId}/video:
+ *   post:
+ *     tags: [PT Courses]
+ *     summary: Upload a lesson video (MP4, ≤100MB)
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: lessonId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               video:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: "Video uploaded — returns { lessonId, videoUrl }"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: INVALID_FILE_TYPE / FILE_TOO_LARGE / INVALID_FIELD_NAME / EMPTY_FILE
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: COURSE_NOT_FOUND / LESSON_NOT_FOUND
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post(
+  '/courses/:id/lessons/:lessonId/video',
+  requireRole('pt'),
+  uploadVideoSingle('video'),
+  uploadLessonVideoHandler,
 );
 
 // Phase 3: Student management.

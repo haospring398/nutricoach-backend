@@ -10,6 +10,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { db } from '../config/db';
+import { cloudinary } from '../config/cloudinary';
 import { ApiError } from '../lib/api-error';
 import { users } from '../models/user.model';
 import { ptProfiles } from '../models/pt.model';
@@ -61,6 +62,9 @@ export interface CourseLessonView {
   id: string;
   title: string;
   youtubeVideoId: string | null;
+  // Owner-only: omitted from the public course detail so the paid Cloudinary
+  // CDN URL is never leaked to the catalog. See buildModulesView flag.
+  cloudinaryVideoUrl?: string | null;
   durationMin: number;
   displayOrder: number;
 }
@@ -156,6 +160,7 @@ const mapCourseSummary = (c: Course): CourseSummary => ({
 
 const buildModulesView = async (
   courseId: string,
+  includeCloudinaryVideo = false,
 ): Promise<CourseModuleView[]> => {
   const moduleRows = await db
     .select()
@@ -175,13 +180,17 @@ const buildModulesView = async (
   const lessonsByModule = new Map<string, CourseLessonView[]>();
   for (const m of moduleRows) lessonsByModule.set(m.id, []);
   for (const l of lessonRows) {
-    lessonsByModule.get(l.moduleId)!.push({
+    const view: CourseLessonView = {
       id: l.id,
       title: l.title,
       youtubeVideoId: l.youtubeVideoId,
       durationMin: l.durationMin,
       displayOrder: l.displayOrder,
-    });
+    };
+    if (includeCloudinaryVideo) {
+      view.cloudinaryVideoUrl = l.cloudinaryVideoUrl;
+    }
+    lessonsByModule.get(l.moduleId)!.push(view);
   }
 
   return moduleRows.map((m) => ({
@@ -318,7 +327,7 @@ export const getOwnCourseById = async (
     throw new CourseError(404, 'COURSE_NOT_FOUND', 'Course not found');
   }
 
-  const modules = await buildModulesView(c.id);
+  const modules = await buildModulesView(c.id, true);
 
   return {
     id: c.id,
@@ -452,6 +461,152 @@ export const replaceCurriculum = async (
   return getOwnCourseById(ptId, courseId);
 };
 
+// ── PT media upload ───────────────────────────────────────────
+
+interface ThumbnailUploadResult {
+  courseId: string;
+  thumbnailUrl: string;
+}
+
+/**
+ * Uploads a 16:9 course thumbnail to Cloudinary (unique id, no overwrite),
+ * persists it onto courses.thumbnailUrl, and returns the URL. Verifies the
+ * course belongs to the calling PT first (404 otherwise — no existence leak).
+ */
+export const uploadCourseThumbnail = async (
+  ptId: string,
+  courseId: string,
+  file: Express.Multer.File,
+): Promise<ThumbnailUploadResult> => {
+  const [c] = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(and(eq(courses.id, courseId), eq(courses.ptId, ptId)))
+    .limit(1);
+
+  if (!c) {
+    throw new CourseError(404, 'COURSE_NOT_FOUND', 'Course not found');
+  }
+
+  let secureUrl: string;
+  try {
+    secureUrl = await new Promise<string>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'nutricoach/course-thumbnails',
+          resource_type: 'image',
+          transformation: [
+            {
+              width: 1280,
+              height: 720,
+              crop: 'fill',
+              quality: 'auto',
+              format: 'auto', // NOT fetch_format (see uploadAvatar Patch §1)
+            },
+          ],
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject(error ?? new Error('Empty Cloudinary response'));
+            return;
+          }
+          resolve(result.secure_url);
+        },
+      );
+      stream.end(file.buffer);
+    });
+  } catch (err) {
+    console.error('[uploadCourseThumbnail] Cloudinary error:', err);
+    throw new CourseError(500, 'UPLOAD_FAILED', 'Failed to upload thumbnail');
+  }
+
+  await db
+    .update(courses)
+    .set({ thumbnailUrl: secureUrl, updatedAt: new Date() })
+    .where(eq(courses.id, courseId));
+
+  return { courseId, thumbnailUrl: secureUrl };
+};
+
+interface LessonVideoUploadResult {
+  lessonId: string;
+  videoUrl: string;
+}
+
+/**
+ * Uploads a lesson MP4 to Cloudinary (resource_type 'video', no resize),
+ * persists it onto course_lessons.cloudinaryVideoUrl, returns the URL.
+ * Verifies the course belongs to the PT AND the lesson belongs to that course
+ * (lesson → module → course join).
+ */
+export const uploadLessonVideo = async (
+  ptId: string,
+  courseId: string,
+  lessonId: string,
+  file: Express.Multer.File,
+): Promise<LessonVideoUploadResult> => {
+  // Verify course ownership first (404 hides other PTs' courses).
+  const [c] = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(and(eq(courses.id, courseId), eq(courses.ptId, ptId)))
+    .limit(1);
+
+  if (!c) {
+    throw new CourseError(404, 'COURSE_NOT_FOUND', 'Course not found');
+  }
+
+  // Verify the lesson belongs to this course (lesson → module → course).
+  const [lesson] = await db
+    .select({ id: courseLessons.id })
+    .from(courseLessons)
+    .innerJoin(courseModules, eq(courseModules.id, courseLessons.moduleId))
+    .where(
+      and(
+        eq(courseLessons.id, lessonId),
+        eq(courseModules.courseId, courseId),
+      ),
+    )
+    .limit(1);
+
+  if (!lesson) {
+    throw new CourseError(404, 'LESSON_NOT_FOUND', 'Lesson not found');
+  }
+
+  let secureUrl: string;
+  try {
+    secureUrl = await new Promise<string>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: 'nutricoach/course-videos',
+          resource_type: 'video',
+          // No incoming transformation: an incoming transform on a video forces
+          // synchronous re-encoding of the whole file (up to 100MB) inside this
+          // request → slow/timeout. Store the original; transform at delivery.
+        },
+        (error, result) => {
+          if (error || !result) {
+            reject(error ?? new Error('Empty Cloudinary response'));
+            return;
+          }
+          resolve(result.secure_url);
+        },
+      );
+      stream.end(file.buffer);
+    });
+  } catch (err) {
+    console.error('[uploadLessonVideo] Cloudinary error:', err);
+    throw new CourseError(500, 'UPLOAD_FAILED', 'Failed to upload lesson video');
+  }
+
+  await db
+    .update(courseLessons)
+    .set({ cloudinaryVideoUrl: secureUrl, updatedAt: new Date() })
+    .where(eq(courseLessons.id, lessonId));
+
+  return { lessonId, videoUrl: secureUrl };
+};
+
 // ── 6. publishCourse ──────────────────────────────────────────
 export const publishCourse = async (
   ptId: string,
@@ -481,7 +636,8 @@ export const publishCourse = async (
     );
   }
 
-  // Find any lessons missing a YouTube video.
+  // A lesson is offending only if it has NEITHER a YouTube id NOR a Cloudinary
+  // video. (AC-3: either source makes the lesson publishable.)
   const offending = await db
     .select({
       lessonId: courseLessons.id,
@@ -493,7 +649,7 @@ export const publishCourse = async (
     .where(
       and(
         eq(courseModules.courseId, courseId),
-        sql`${courseLessons.youtubeVideoId} IS NULL`,
+        sql`${courseLessons.youtubeVideoId} IS NULL AND ${courseLessons.cloudinaryVideoUrl} IS NULL`,
       ),
     );
 
@@ -501,7 +657,7 @@ export const publishCourse = async (
     const err = new CourseError(
       422,
       'CURRICULUM_INCOMPLETE',
-      'Cannot publish: some lessons are missing YouTube videos',
+      'Cannot publish: some lessons have no video (YouTube or uploaded)',
     );
     (err as CourseError & { details: unknown }).details = offending;
     throw err;

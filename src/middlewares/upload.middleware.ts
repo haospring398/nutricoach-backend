@@ -48,3 +48,41 @@ export const uploadSingle = (fieldName: string) => {
     });
   };
 };
+
+const MAX_VIDEO_SIZE_BYTES = 100 * 1024 * 1024; // 100 MB
+const ALLOWED_VIDEO_MIME_TYPES = new Set(['video/mp4']);
+
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_VIDEO_SIZE_BYTES },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_VIDEO_MIME_TYPES.has(file.mimetype)) {
+      cb(
+        new ApiError(
+          400,
+          'INVALID_FILE_TYPE',
+          'Only MP4 video is allowed',
+        ),
+      );
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+/**
+ * Video variant of uploadSingle: 100MB limit, video/mp4 only. Same
+ * stash-on-req.uploadError contract (no global error middleware), so the
+ * controller converts the error into the standard envelope.
+ */
+export const uploadVideoSingle = (fieldName: string) => {
+  const handler = videoUpload.single(fieldName);
+  return (req: Request, res: Response, next: NextFunction): void => {
+    handler(req, res, (err: unknown) => {
+      if (err) {
+        (req as Request & { uploadError?: unknown }).uploadError = err;
+      }
+      next();
+    });
+  };
+};

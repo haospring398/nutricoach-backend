@@ -127,6 +127,13 @@
       "when": 1779860000000,
       "tag": "0017_admin_user_management",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1779870000000,
+      "tag": "0018_lesson_cloudinary_video",
+      "breakpoints": true
     }
   ]
 }

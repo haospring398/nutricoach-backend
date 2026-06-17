@@ -97,6 +97,9 @@ export const courseLessons = pgTable(
     // Nullable until publish; the publish handler enforces non-null on all
     // lessons before flipping status.
     youtubeVideoId: varchar('youtube_video_id', { length: 32 }),
+    // Alternative to youtubeVideoId: a Cloudinary-hosted video. A lesson is
+    // publishable if it has either one (see publishCourse).
+    cloudinaryVideoUrl: varchar('cloudinary_video_url', { length: 512 }),
     durationMin: integer('duration_min').notNull().default(0),
     displayOrder: integer('display_order').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })

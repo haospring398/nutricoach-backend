@@ -94,6 +94,11 @@ export const courseIdParamSchema = z.object({
   id: z.string().uuid('course id must be a UUID'),
 });
 
+export const lessonVideoParamSchema = z.object({
+  id: z.string().uuid('course id must be a UUID'),
+  lessonId: z.string().uuid('lesson id must be a UUID'),
+});
+
 export const listOwnCoursesQuerySchema = z.object({
   status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
   page: z.coerce.number().int().min(1).default(1),

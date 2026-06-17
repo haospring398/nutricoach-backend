@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
+import multer from 'multer';
 import { ApiError } from '../lib/api-error';
 import {
   archiveCourse,
@@ -12,12 +13,15 @@ import {
   patchCourse,
   publishCourse,
   replaceCurriculum,
+  uploadCourseThumbnail,
+  uploadLessonVideo,
 } from '../services/course.service';
 import {
   courseCurriculumSchema,
   courseIdParamSchema,
   createCourseBodySchema,
   discoverCoursesQuerySchema,
+  lessonVideoParamSchema,
   listOwnCoursesQuerySchema,
   listPurchasedQuerySchema,
   patchCourseBodySchema,
@@ -228,6 +232,80 @@ export const getPublicCourseDetailHandler = async (
   try {
     const { id } = courseIdParamSchema.parse(req.params);
     const data = await getPublicCourseDetail(id);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+// ── PT media upload ───────────────────────────────────────────
+
+export const uploadCourseThumbnailHandler = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const ptId = requireUser(req, res);
+    if (!ptId) return;
+
+    const uploadError = (req as Request & { uploadError?: unknown }).uploadError;
+    if (uploadError) {
+      if (uploadError instanceof multer.MulterError) {
+        if (uploadError.code === 'LIMIT_FILE_SIZE') {
+          throw new ApiError(400, 'FILE_TOO_LARGE', 'Thumbnail must be 5 MB or smaller');
+        }
+        if (uploadError.code === 'LIMIT_UNEXPECTED_FILE') {
+          throw new ApiError(400, 'INVALID_FIELD_NAME', 'Use field name "thumbnail"');
+        }
+      }
+      throw uploadError; // ApiError (INVALID_FILE_TYPE) or unexpected
+    }
+
+    const { id } = courseIdParamSchema.parse(req.params);
+    if (!req.file) {
+      throw new ApiError(400, 'NO_FILE_PROVIDED', 'No image file provided in field "thumbnail"');
+    }
+    if (req.file.size === 0) {
+      throw new ApiError(400, 'EMPTY_FILE', 'Uploaded file is empty');
+    }
+
+    const data = await uploadCourseThumbnail(ptId, id, req.file);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const uploadLessonVideoHandler = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const ptId = requireUser(req, res);
+    if (!ptId) return;
+
+    const uploadError = (req as Request & { uploadError?: unknown }).uploadError;
+    if (uploadError) {
+      if (uploadError instanceof multer.MulterError) {
+        if (uploadError.code === 'LIMIT_FILE_SIZE') {
+          throw new ApiError(400, 'FILE_TOO_LARGE', 'Video must be 100 MB or smaller');
+        }
+        if (uploadError.code === 'LIMIT_UNEXPECTED_FILE') {
+          throw new ApiError(400, 'INVALID_FIELD_NAME', 'Use field name "video"');
+        }
+      }
+      throw uploadError;
+    }
+
+    const { id, lessonId } = lessonVideoParamSchema.parse(req.params);
+    if (!req.file) {
+      throw new ApiError(400, 'NO_FILE_PROVIDED', 'No video file provided in field "video"');
+    }
+    if (req.file.size === 0) {
+      throw new ApiError(400, 'EMPTY_FILE', 'Uploaded file is empty');
+    }
+
+    const data = await uploadLessonVideo(ptId, id, lessonId, req.file);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

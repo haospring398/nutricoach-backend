@@ -36,6 +36,9 @@ export const courses = pgTable(
     description: text('description').notNull(),
     // Out-of-band placeholder or future S3 key — same convention as Phase 1.
     thumbnailUrl: varchar('thumbnail_url', { length: 512 }),
+    // Cloudinary public_id of the current thumbnail — destroy by this on
+    // replace (no URL parsing); compensate-delete on DB-write failure.
+    thumbnailPublicId: varchar('thumbnail_public_id', { length: 512 }),
     priceVnd: integer('price_vnd').notNull(),
     durationDays: integer('duration_days').notNull(),
     tags: text('tags')
@@ -100,6 +103,11 @@ export const courseLessons = pgTable(
     // Alternative to youtubeVideoId: a Cloudinary-hosted video. A lesson is
     // publishable if it has either one (see publishCourse).
     cloudinaryVideoUrl: varchar('cloudinary_video_url', { length: 512 }),
+    // Cloudinary public_id of the current video (resource_type 'video') —
+    // destroy by this on replace; compensate-delete on DB-write failure.
+    cloudinaryVideoPublicId: varchar('cloudinary_video_public_id', {
+      length: 512,
+    }),
     durationMin: integer('duration_min').notNull().default(0),
     displayOrder: integer('display_order').notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })

@@ -10,7 +10,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 import { db } from '../config/db';
-import { cloudinary } from '../config/cloudinary';
+import { cloudinary, destroyAsset } from '../config/cloudinary';
 import { ApiError } from '../lib/api-error';
 import { users } from '../models/user.model';
 import { ptProfiles } from '../models/pt.model';
@@ -479,7 +479,7 @@ export const uploadCourseThumbnail = async (
   file: Express.Multer.File,
 ): Promise<ThumbnailUploadResult> => {
   const [c] = await db
-    .select({ id: courses.id })
+    .select({ id: courses.id, oldPublicId: courses.thumbnailPublicId })
     .from(courses)
     .where(and(eq(courses.id, courseId), eq(courses.ptId, ptId)))
     .limit(1);
@@ -489,8 +489,12 @@ export const uploadCourseThumbnail = async (
   }
 
   let secureUrl: string;
+  let publicId: string;
   try {
-    secureUrl = await new Promise<string>((resolve, reject) => {
+    ({ secureUrl, publicId } = await new Promise<{
+      secureUrl: string;
+      publicId: string;
+    }>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
         {
           folder: 'nutricoach/course-thumbnails',
@@ -510,20 +514,37 @@ export const uploadCourseThumbnail = async (
             reject(error ?? new Error('Empty Cloudinary response'));
             return;
           }
-          resolve(result.secure_url);
+          resolve({ secureUrl: result.secure_url, publicId: result.public_id });
         },
       );
       stream.end(file.buffer);
-    });
+    }));
   } catch (err) {
     console.error('[uploadCourseThumbnail] Cloudinary error:', err);
     throw new CourseError(500, 'UPLOAD_FAILED', 'Failed to upload thumbnail');
   }
 
-  await db
-    .update(courses)
-    .set({ thumbnailUrl: secureUrl, updatedAt: new Date() })
-    .where(eq(courses.id, courseId));
+  try {
+    await db
+      .update(courses)
+      .set({
+        thumbnailUrl: secureUrl,
+        thumbnailPublicId: publicId,
+        updatedAt: new Date(),
+      })
+      .where(eq(courses.id, courseId));
+  } catch (err) {
+    // CAP-2: DB persist failed — compensate-delete the just-uploaded asset so
+    // it does not orphan, then rethrow.
+    await destroyAsset(publicId, 'image');
+    throw err;
+  }
+
+  // CAP-1: new asset persisted — destroy the previous one (if any) so replaces
+  // don't leak storage. Best-effort: a destroy failure only logs.
+  if (c.oldPublicId) {
+    await destroyAsset(c.oldPublicId, 'image');
+  }
 
   return { courseId, thumbnailUrl: secureUrl };
 };
@@ -532,6 +553,10 @@ interface LessonVideoUploadResult {
   lessonId: string;
   videoUrl: string;
 }
+
+// Bounds a stalled Cloudinary video upload so the request fails fast instead
+// of hanging a connection (and the temp file) indefinitely. (CAP-3)
+const VIDEO_UPLOAD_TIMEOUT_MS = 120_000;
 
 /**
  * Uploads a lesson MP4 to Cloudinary (resource_type 'video', no resize),
@@ -558,7 +583,10 @@ export const uploadLessonVideo = async (
 
   // Verify the lesson belongs to this course (lesson → module → course).
   const [lesson] = await db
-    .select({ id: courseLessons.id })
+    .select({
+      id: courseLessons.id,
+      oldPublicId: courseLessons.cloudinaryVideoPublicId,
+    })
     .from(courseLessons)
     .innerJoin(courseModules, eq(courseModules.id, courseLessons.moduleId))
     .where(
@@ -574,35 +602,46 @@ export const uploadLessonVideo = async (
   }
 
   let secureUrl: string;
+  let publicId: string;
   try {
-    secureUrl = await new Promise<string>((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          folder: 'nutricoach/course-videos',
-          resource_type: 'video',
-          // No incoming transformation: an incoming transform on a video forces
-          // synchronous re-encoding of the whole file (up to 100MB) inside this
-          // request → slow/timeout. Store the original; transform at delivery.
-        },
-        (error, result) => {
-          if (error || !result) {
-            reject(error ?? new Error('Empty Cloudinary response'));
-            return;
-          }
-          resolve(result.secure_url);
-        },
-      );
-      stream.end(file.buffer);
+    // CAP-3: video is on disk (multer diskStorage) — upload from the temp path
+    // so the 100MB file is never fully buffered in process memory. `timeout`
+    // bounds a stalled Cloudinary stream so the request fails fast, not hangs.
+    // The temp file is cleaned by the upload middleware on response close.
+    const result = await cloudinary.uploader.upload(file.path, {
+      folder: 'nutricoach/course-videos',
+      resource_type: 'video',
+      timeout: VIDEO_UPLOAD_TIMEOUT_MS,
+      // No incoming transformation: an incoming transform on a video forces
+      // synchronous re-encoding of the whole file inside this request →
+      // slow/timeout. Store the original; transform at delivery.
     });
+    secureUrl = result.secure_url;
+    publicId = result.public_id;
   } catch (err) {
     console.error('[uploadLessonVideo] Cloudinary error:', err);
     throw new CourseError(500, 'UPLOAD_FAILED', 'Failed to upload lesson video');
   }
 
-  await db
-    .update(courseLessons)
-    .set({ cloudinaryVideoUrl: secureUrl, updatedAt: new Date() })
-    .where(eq(courseLessons.id, lessonId));
+  try {
+    await db
+      .update(courseLessons)
+      .set({
+        cloudinaryVideoUrl: secureUrl,
+        cloudinaryVideoPublicId: publicId,
+        updatedAt: new Date(),
+      })
+      .where(eq(courseLessons.id, lessonId));
+  } catch (err) {
+    // CAP-2: compensate-delete the just-uploaded video on DB persist failure.
+    await destroyAsset(publicId, 'video');
+    throw err;
+  }
+
+  // CAP-1: destroy the previous video (if any) now the new one is persisted.
+  if (lesson.oldPublicId) {
+    await destroyAsset(lesson.oldPublicId, 'video');
+  }
 
   return { lessonId, videoUrl: secureUrl };
 };

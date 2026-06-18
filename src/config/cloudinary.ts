@@ -12,3 +12,26 @@ cloudinary.config({
 });
 
 export { cloudinary };
+
+/**
+ * Best-effort delete of a Cloudinary asset by public_id. Cleanup must never
+ * fail the request, so any error is logged and swallowed. `resourceType` is
+ * required and must match how the asset was uploaded ('image' vs 'video') —
+ * Cloudinary namespaces by resource type, so a mismatch silently "not founds".
+ */
+export const destroyAsset = async (
+  publicId: string,
+  resourceType: 'image' | 'video',
+): Promise<void> => {
+  try {
+    await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
+      invalidate: true,
+    });
+  } catch (err) {
+    console.error(
+      `[destroyAsset] Failed to delete ${resourceType} ${publicId}:`,
+      err,
+    );
+  }
+};

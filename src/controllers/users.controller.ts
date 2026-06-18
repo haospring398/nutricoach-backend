@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
-import multer from 'multer';
 import { ZodError } from 'zod';
 import { ApiError } from '../lib/api-error';
+import { toUploadApiError } from '../lib/upload-error';
 import {
   changePassword,
   completeOnboarding,
@@ -174,15 +174,12 @@ export const uploadAvatar = async (
     const uploadError = (req as Request & { uploadError?: unknown })
       .uploadError;
     if (uploadError) {
-      if (uploadError instanceof multer.MulterError) {
-        if (uploadError.code === 'LIMIT_FILE_SIZE') {
-          throw new ApiError(400, 'FILE_TOO_LARGE', 'Avatar must be 5 MB or smaller');
-        }
-        if (uploadError.code === 'LIMIT_UNEXPECTED_FILE') {
-          throw new ApiError(400, 'INVALID_FIELD_NAME', 'Use field name "avatar"');
-        }
-      }
-      throw uploadError; // ApiError (INVALID_FILE_TYPE) or an unexpected error
+      const apiError = toUploadApiError(uploadError, {
+        fieldName: 'avatar',
+        maxSizeLabel: '5 MB',
+      });
+      if (apiError) throw apiError;
+      throw uploadError; // unexpected — handleError classifies as 500
     }
 
     if (!req.file) {

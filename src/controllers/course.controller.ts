@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ZodError } from 'zod';
-import multer from 'multer';
 import { ApiError } from '../lib/api-error';
+import { toUploadApiError } from '../lib/upload-error';
 import {
   archiveCourse,
   createCourse,
@@ -250,15 +250,12 @@ export const uploadCourseThumbnailHandler = async (
 
     const uploadError = (req as Request & { uploadError?: unknown }).uploadError;
     if (uploadError) {
-      if (uploadError instanceof multer.MulterError) {
-        if (uploadError.code === 'LIMIT_FILE_SIZE') {
-          throw new ApiError(400, 'FILE_TOO_LARGE', 'Thumbnail must be 5 MB or smaller');
-        }
-        if (uploadError.code === 'LIMIT_UNEXPECTED_FILE') {
-          throw new ApiError(400, 'INVALID_FIELD_NAME', 'Use field name "thumbnail"');
-        }
-      }
-      throw uploadError; // ApiError (INVALID_FILE_TYPE) or unexpected
+      const apiError = toUploadApiError(uploadError, {
+        fieldName: 'thumbnail',
+        maxSizeLabel: '5 MB',
+      });
+      if (apiError) throw apiError;
+      throw uploadError; // unexpected — handleError classifies as 500
     }
 
     const { id } = courseIdParamSchema.parse(req.params);
@@ -286,15 +283,12 @@ export const uploadLessonVideoHandler = async (
 
     const uploadError = (req as Request & { uploadError?: unknown }).uploadError;
     if (uploadError) {
-      if (uploadError instanceof multer.MulterError) {
-        if (uploadError.code === 'LIMIT_FILE_SIZE') {
-          throw new ApiError(400, 'FILE_TOO_LARGE', 'Video must be 100 MB or smaller');
-        }
-        if (uploadError.code === 'LIMIT_UNEXPECTED_FILE') {
-          throw new ApiError(400, 'INVALID_FIELD_NAME', 'Use field name "video"');
-        }
-      }
-      throw uploadError;
+      const apiError = toUploadApiError(uploadError, {
+        fieldName: 'video',
+        maxSizeLabel: '100 MB',
+      });
+      if (apiError) throw apiError;
+      throw uploadError; // unexpected — handleError classifies as 500
     }
 
     const { id, lessonId } = lessonVideoParamSchema.parse(req.params);

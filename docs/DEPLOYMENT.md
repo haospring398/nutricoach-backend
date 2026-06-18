@@ -81,7 +81,7 @@ REDIS_URL=redis://<host>:<port>
 
 # ── Email (Resend) ────────────────────────────────
 RESEND_API_KEY=re_<key>
-RESEND_FROM_EMAIL=no-reply@yourdomain.com
+EMAIL_FROM=no-reply@yourdomain.com
 
 # ── Payment (PayOS) ───────────────────────────────
 PAYOS_CLIENT_ID=<id>
@@ -107,20 +107,19 @@ CLOUDINARY_API_SECRET=<api_secret>
 npm run db:migrate
 ```
 
-Lệnh này tạo toàn bộ **24 tables** từ migrations `0000–0014`.  
+Lệnh này tạo toàn bộ **27 tables** từ migrations `0000–0018`.  
 **Phải chạy trước `npm start`.**
+
+> ⚠️ Migration viết tay (`0010+`) nên áp bằng `psql -f <file>.sql` trực tiếp thay vì `db:migrate` (drizzle journal hash bị corrupt với file viết tay). Xem `_bmad-output/project-context.md`.
 
 ---
 
 ## 6. Seed data
 
 ```bash
-npm run db:seed
+npm run seed:foods       # ~2,100 food items từ Viện Dinh dưỡng VN (NIN) — cần cho /foods
+npm run seed:exercises   # ~40 bài tập trong exercise library — cần cho /workout
 ```
-
-Tạo dữ liệu mẫu cần thiết:
-- **~2,100 food items** từ Viện Dinh dưỡng VN (NIN) — cần cho các endpoint `/foods`
-- **40 bài tập** trong exercise library — cần cho các endpoint `/workout`
 
 Không có seed data → foods search và workout sessions sẽ trả về empty.
 
@@ -182,8 +181,8 @@ Pool đã config `max: 5` phù hợp. Không tăng lên — Neon free tier giớ
 ### 🟡 Neon cold start
 Neon suspend sau 5 phút không có activity. Request đầu tiên sau khi suspend có thể mất 5–10 giây. Đây là behavior bình thường của Neon free tier — pool đã config `connectionTimeoutMillis: 15s` để handle.
 
-### 🟡 Chỉ dùng `db:migrate`, không dùng `drizzle-kit push`
-Một số migrations (`0010–0014`) được viết tay với journal entries riêng. `drizzle-kit push` sẽ bỏ qua các partial unique indexes và CHECK constraints này. **Luôn dùng `npm run db:migrate`.**
+### 🟡 Không dùng `drizzle-kit push`
+Một số migrations (`0010+`) được viết tay với journal entries riêng + partial unique indexes và CHECK constraints. `drizzle-kit push` sẽ bỏ qua chúng. **Không bao giờ `db:push` trên production.** Migration thường dùng `npm run db:migrate`; migration viết tay (`0010+`) áp bằng `psql -f <file>.sql` (xem mục 5).
 
 ### 🟡 `DB_SSL=true` bắt buộc với Neon
 Nếu set `DB_SSL=false` hoặc bỏ trống → connection bị reject. Chỉ set `DB_SSL=false` khi test với local PostgreSQL.
@@ -197,7 +196,7 @@ npm install
 → Tạo .env với đầy đủ values
 → npm run build
 → npm run db:migrate
-→ npm run db:seed
+→ npm run seed:foods && npm run seed:exercises
 → npm start
 → Chạy smoke tests
 ```

@@ -13,6 +13,78 @@ courses → students → earnings/withdrawals, end-to-end (Phases 1–4 all ship
 
 ---
 
+## 0. At a glance (diagrams)
+
+### Layered request flow
+
+```mermaid
+flowchart LR
+    Client["Mobile / Client"] -->|"HTTP /api/v1"| R["routes/*.routes.ts"]
+    R -->|"authenticate → requireRole → requirePtAccessToStudent"| MW["middlewares"]
+    MW --> C["controllers/* (parse + envelope)"]
+    C -->|"schema.parse"| V["validations/* (Zod)"]
+    C --> S["services/* (business logic)"]
+    S --> M["models/* (Drizzle)"]
+    S --> DB[("PostgreSQL")]
+    S --> RD[("Redis / cache")]
+    S -.->|"HTTP x-service-secret"| AI["AI microservice (Gemini)"]
+    S -.->|"SDK"| EXT["PayOS · Cloudinary · Resend"]
+```
+
+> Controllers never touch `db`/`redis` directly; services never import `Request`/`Response`. No global error middleware — each controller owns `handleError`.
+
+### Entity-relationship (27 tables / 13 model files)
+
+```mermaid
+erDiagram
+    users ||--o{ refresh_tokens : has
+    users ||--|| user_metrics : metrics
+    users ||--|| user_points : points
+    users ||--o{ food_logs : logs
+    food_items ||--o{ food_logs : snapshots
+    users ||--o{ workout_sessions : performs
+    workout_sessions ||--o{ session_exercise_logs : contains
+    exercises ||--o{ session_exercise_logs : ref
+    users ||--o{ ai_food_scans : scans
+    users ||--o{ daily_mission_logs : completes
+    quests ||--o{ daily_mission_logs : ref
+    users ||--o{ reward_redemptions : redeems
+    rewards ||--o{ reward_redemptions : ref
+    users ||--o{ transactions : pays
+    users ||--o{ subscriptions : owns
+    transactions ||--o| subscriptions : lastTx
+    users ||--o{ pt_verifications : submits
+    users ||--|| pt_profiles : profile
+    users ||--o{ courses : owns
+    courses ||--o{ course_modules : has
+    course_modules ||--o{ course_lessons : has
+    courses ||--o{ enrollments : sold
+    transactions ||--|| enrollments : idempotent
+    enrollments ||--o{ pt_assignments : assigns
+    enrollments ||--|| pt_earnings : idempotent
+    users ||--o{ withdrawals : requests
+    article_categories ||--o{ articles : groups
+    users ||--o{ articles : authors
+```
+
+### Payment webhook branch (`handlePayosWebhook`, one DB transaction)
+
+```mermaid
+flowchart TD
+    W["POST /payment/webhook/payos"] --> VS{"Verify signature từ rawBody"}
+    VS -->|"invalid"| X["200 — bỏ qua"]
+    VS -->|"PAID"| TX["Load transaction theo orderCode"]
+    TX --> BR{"productType?"}
+    BR -->|"pro_monthly / pro_yearly"| SUB["activateProSubscription<br/>upsert subscription · users.tier=PRO"]
+    BR -->|"pt_course"| ENR["activateCourseEnrollment<br/>insert enrollments + recordPtEarning<br/>available_at = paid_at + 7d · status on_hold"]
+    SUB --> OK["200 received"]
+    ENR --> OK
+```
+
+> Both branches are idempotent on their `transaction_id` unique index; a missing course / PT profile logs + skips (the webhook must still return 200).
+
+---
+
 ## 1. Folder structure (`src/`)
 
 ```
@@ -120,9 +192,6 @@ Seed data lives outside `src/`: `data/seed/vn_food.csv`, `vn_dishes.csv`, `exerc
 JSDoc; `swagger-jsdoc` + `swagger-ui-express` are in `package.json`. Note the `apis`
 glob targets `./src/routes/*.ts` — fine under tsx/dev; a compiled `dist/` run would
 need `./dist/routes/*.js` added.
-
-**Untracked scratch file:** `Gemini.md` (a prior agent's notes) sits in the repo root,
-not git-managed and not part of any module. Leave it alone unless asked.
 
 ---
 
@@ -460,11 +529,12 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 106 endpoints annotated).
     `diary-lock` filters `food_logs.consumed_at` with the **double**-cast (see quirk #5). Quest
     `created_at`/`updated_at` are plain `timestamp` (no tz) — the only non-timestamptz timestamps
     outside the food/nutrition tables.
-18. **AI_SCAN is client-verified (temporary)** — `quest.service.ts → triggerQuest` accepts the
-    client's `referenceId` for `AI_SCAN` with only the DB daily cap (3/day) as a guard; the
-    `ai_food_scans` table doesn't exist yet (Scan module unbuilt). A `TODO` comment marks where
-    server-side verification must be added when Scan ships. `PT_VISIT` and `DAILY_SHARE` are
-    likewise client-verified (cap-only). `WORKOUT_DONE` is the only server-verified trigger.
+18. **AI_SCAN is server-verified** (updated 2026-06-18 — the Scan module shipped, migration 0015) —
+    `quest.service.ts → triggerQuest` validates the client's `referenceId` against `ai_food_scans`
+    (`id = referenceId AND user_id = caller`); a missing/foreign row → `400 INVALID_REFERENCE`. The
+    DB daily cap (3/day) is the secondary guard. `WORKOUT_DONE` is likewise server-verified (against
+    `workout_sessions`). `PT_VISIT` and `DAILY_SHARE` remain **client-verified** (cap-only — the
+    server can't confirm a profile view or a native OS share); `referenceId` is stored for audit only.
 
 ### Users / avatar gotchas
 19. **`numeric(5,2)` columns round-trip as strings** — `user_metrics.weight_kg` /

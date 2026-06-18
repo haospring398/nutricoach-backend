@@ -1,9 +1,11 @@
 # Hướng Dẫn Tích Hợp Mobile Frontend – NutriCoach
 
 > **Đối tượng:** Lập trình viên mobile (iOS/Android) tích hợp với backend NutriCoach.  
-> **Base URL:** `https://test-nutricoach.onrender.com/`  
+> **Base URL:** `https://test-nutricoach.onrender.com/` *(môi trường test/staging — thay bằng URL prod khi phát hành)*  
 > **API prefix:** `/api/v1` (tất cả endpoint trừ `/health`)  
-> **Swagger UI:** `/api-docs` (toàn bộ 93 endpoint được mô tả inline)
+> **Swagger UI:** `/api-docs` — danh sách endpoint đầy đủ & luôn cập nhật (raw spec: `/api-docs.json`)  
+> **Phạm vi:** app người dùng + các endpoint media của app PT. Toàn bộ `/admin/*` nằm **ngoài** phạm vi tài liệu này.  
+> **Cập nhật:** 2026-06-18 · đối chiếu `API_CURRENT.md` và Swagger `/api-docs`
 
 ---
 
@@ -43,8 +45,10 @@
 
 | Token | Thời hạn | Nơi lưu trữ | Cách sử dụng |
 |---|---|---|---|
-| `accessToken` | Ngắn (phút/giờ) | Bộ nhớ bảo mật / Keychain | Header `Authorization: Bearer <token>` cho mọi request cần xác thực |
-| `refreshToken` | Dài (ngày/tuần) | Bộ lưu trữ bảo mật (Keychain / Keystore) | Chỉ dùng trong body của `POST /auth/refresh` |
+| `accessToken` | **7 ngày** (mặc định `JWT_EXPIRES_IN`) | Bộ nhớ bảo mật / Keychain | Header `Authorization: Bearer <token>` cho mọi request cần xác thực |
+| `refreshToken` | **30 ngày** (`JWT_REFRESH_EXPIRES_IN`) | Bộ lưu trữ bảo mật (Keychain / Keystore) | Chỉ dùng trong body của `POST /auth/refresh` |
+
+> ℹ️ accessToken mặc định sống **7 ngày**, nên `401` do token thường là token bị **thu hồi** (logout / đổi mật khẩu / bị ban) hoặc hết hạn thật — không phải sự kiện thường xuyên. Dù vậy vẫn nên implement refresh-on-401 như dưới. *(Giá trị TTL đọc từ env; xác nhận lại cấu hình prod nếu khác.)*
 
 ### Cách Refresh Token
 
@@ -62,7 +66,7 @@ Body: { "refreshToken": "<stored_refresh_token>" }
 
 ### Mẫu Request (Pseudocode)
 
-```
+```text
 func apiCall(request):
   response = http(request, headers: { Authorization: "Bearer " + accessToken })
 
@@ -73,6 +77,30 @@ func apiCall(request):
       retry original request once with new accessToken
     else:
       navigateToLogin()
+```
+
+### Sơ Đồ Luồng Refresh-on-401
+
+```mermaid
+sequenceDiagram
+    participant App as Mobile App
+    participant API as NutriCoach API
+    App->>API: Request + Bearer accessToken
+    alt accessToken hợp lệ
+        API-->>App: 200 OK
+    else 401 INVALID_TOKEN / TOKEN_EXPIRED
+        API-->>App: 401
+        App->>API: POST /auth/refresh { refreshToken }
+        alt refresh thành công
+            API-->>App: 200 { accessToken mới, refreshToken mới }
+            Note over App: Lưu CẢ HAI token (token cũ vô hiệu hóa ngay)
+            App->>API: Retry request 1 lần với accessToken mới
+            API-->>App: 200 OK
+        else refresh thất bại
+            API-->>App: 401 INVALID_TOKEN / TOKEN_EXPIRED
+            Note over App: Buộc đăng nhập lại
+        end
+    end
 ```
 
 ### Sự Kiện Vòng Đời Token
@@ -260,6 +288,21 @@ FE không cần gọi /quests/trigger cho questId này.
 4.  Người dùng xác nhận → dùng dữ liệu thực phẩm để POST /nutrition/food-logs (chế độ tùy chỉnh)
 ```
 
+```mermaid
+sequenceDiagram
+    participant App as Mobile App
+    participant API as NutriCoach API
+    participant AI as AI Microservice (Gemini)
+    App->>API: POST /scan { imageBase64, question? }
+    API->>AI: Gửi ảnh trích xuất (header x-service-secret)
+    AI-->>API: extraction + finalAnswer (tiếng Việt)
+    API-->>App: 200 { scanId, finalAnswer, retrievedRows, quest }
+    Note over API,App: Backend TỰ trao quest AI_SCAN (+20đ).<br/>FE KHÔNG cần gọi /quests/trigger.
+    App->>API: (xác nhận) POST /nutrition/food-logs (chế độ tùy chỉnh)
+```
+
+> ℹ️ **Quyền sở hữu quest AI_SCAN:** `POST /scan` đã **tự** trao `AI_SCAN`. Validation của `/quests/trigger` vẫn chấp nhận `questId=AI_SCAN` (kèm `referenceId` = `scanId`), nhưng đó chỉ là **fallback — không khuyến nghị**. Đường chính tắc là dựa vào kết quả `quest` trong response của `/scan`.
+
 ---
 
 ### 2.6 Mua Gói PRO
@@ -288,6 +331,23 @@ FE không cần gọi /quests/trigger cho questId này.
 Lưu ý: Trạng thái thanh toán được cập nhật bởi webhook PayOS trên server.
         Ứng dụng không cần gọi bất kỳ endpoint webhook nào.
 ```
+
+```mermaid
+sequenceDiagram
+    participant App as Mobile App
+    participant API as NutriCoach API
+    participant PayOS
+    App->>API: POST /payment/checkout (Idempotency-Key)
+    API-->>App: 201 { checkoutUrl, qrCode, orderCode }
+    App->>PayOS: Mở checkoutUrl (in-app browser / QR)
+    PayOS-->>App: Deep link nutricoach://payment/success hoặc /cancel
+    PayOS-)API: Webhook PAID (bất đồng bộ, verify signature)
+    Note over API: Kích hoạt subscription / enrollment trong 1 DB transaction
+    App->>API: GET /payment/subscription (poll khi quay lại app)
+    API-->>App: status ACTIVE · GET /users/me → tier PRO
+```
+
+> ℹ️ Webhook là **bất đồng bộ**: sau khi user thanh toán xong, có độ trễ vài giây trước khi server xử lý xong. Hãy **poll** `GET /payment/subscription` (hoặc `/payment/courses`) khi app quay lại foreground, đừng giả định trạng thái đã đổi ngay lúc nhận deep link.
 
 ---
 
@@ -345,6 +405,12 @@ Quest do server kích hoạt (gọi sau hành động tương ứng):
       → voucherCode có với phần thưởng SMALL (≤500 điểm), null với LARGE (>500 điểm)
 7.  GET /api/v1/quests/redemptions     → lịch sử đổi thưởng của người dùng
 ```
+
+> ℹ️ **Quest nào FE phải tự gọi `/quests/trigger`?**
+> - **`WORKOUT_DONE`** — FE **phải** gọi, kèm `referenceId` = `sessionId` (sau khi `POST /workout/sessions`).
+> - **`PT_VISIT`, `DAILY_SHARE`** — FE gọi khi hành động tương ứng xảy ra.
+> - **`AI_SCAN`** — backend đã tự trao qua `POST /scan`; **không** cần FE gọi (xem §2.5).
+> - **`DAILY_LOGIN`** (auto qua `/quests/daily`), **`PERFECT_DIARY` + `DISCIPLINE_MASTER`** (auto qua `/quests/diary-lock`) — server kích hoạt, FE **không** gọi trigger.
 
 ---
 
@@ -1167,7 +1233,7 @@ Lưu ý: `quest` là `null` nếu đã đạt giới hạn ngày của AI_SCAN (
 
 ### Mẫu Xử Lý Lỗi (Pseudocode)
 
-```
+```text
 func handleError(response):
   code = response.error.code
 
@@ -1244,7 +1310,7 @@ Response có phân trang chuẩn có cấu trúc:
 
 ### Idempotency Key
 
-`POST /payment/checkout` và `POST /pt/withdrawals` yêu cầu header `Idempotency-Key`.
+`POST /payment/checkout` (app người dùng) và `POST /pt/withdrawals` (app PT) yêu cầu header `Idempotency-Key`.
 
 - Tạo UUID v4 phía client trước khi gửi request.
 - Lưu key cùng với thao tác đang chờ.
@@ -1285,4 +1351,4 @@ Người dùng chỉ trở thành PT sau khi nộp `/pt/verification` và đư�
 
 ---
 
-*Cập nhật lần cuối từ snapshot API_CURRENT.md — tham chiếu chéo với `/api-docs` để xem spec Swagger mới nhất.*
+*Cập nhật lần cuối: 2026-06-18 (từ snapshot API_CURRENT.md) — tham chiếu chéo với `/api-docs` để xem spec Swagger mới nhất.*

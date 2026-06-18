@@ -2,6 +2,8 @@
 
 Snapshot of endpoints that actually exist in the route files. Anything not listed here is unimplemented.
 
+> **Last updated:** 2026-06-18 · **Source of truth (always current):** Swagger `/api-docs` (raw spec `/api-docs.json`). This file is the narrative companion — when they disagree, trust Swagger. The Base URL under Conventions is a dev/LAN address; replace it with your environment's host.
+
 ## Conventions
 
 - **Base URL:** `http://192.168.1.13:3000`
@@ -29,7 +31,7 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 > **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 32 handlers spanning four logical modules (PT review 7 + article read/write 8 incl. `upload-image` + quest admin 11 incl. 3 redemption + 4 rewards CRUD + user management 6 incl. analytics); the table above groups by logical module. PT is **20** (P1 4, P2 courses 9 incl. thumbnail + lesson video upload, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
 
-> **⚠️ Documentation gap:** the **9 Content/articles endpoints** (migration 0013 — `GET/POST /content/articles*`, `GET /content/categories`, `POST/PATCH /admin/articles*`, `POST /admin/categories`) are wired, tested, and documented in **Swagger (`/api-docs`)**, but their per-endpoint request/response blocks are **not yet in this file**. The Quest endpoints below ARE fully documented. Tracked as a follow-up.
+> **Content/articles endpoints** (migration 0013) are now documented per-endpoint in this file (Content section for the public reads, Admin section for the article/category writes), in addition to Swagger (`/api-docs`).
 
 ---
 
@@ -1693,12 +1695,106 @@ Marks the withdrawal `rejected` with a reason. The reserved balance is released 
 
 ### GET /api/v1/admin/articles/:id
 
-Admin draft preview — returns full article detail by id **regardless of status** (draft/published/archived). Same shape as the public `GET /content/articles/:slug` plus a `status` field; does **not** increment `viewCount`. (The other admin article write endpoints — create/update/publish/archive + categories — are wired and in Swagger but not yet detailed in this file; see the documentation-gap note at the top.)
+Admin draft preview — returns full article detail by id **regardless of status** (draft/published/archived). Same shape as the public `GET /content/articles/:slug` plus a `status` field; does **not** increment `viewCount`.
 
 - Auth: required (`requireRole('admin')`)
 - Request: path — `id` (UUID)
 - Response: `200 OK` — article detail `{ id, slug, title, excerpt, body, category, author, tags, readingTimeMin, viewCount, publishedAt, status }`; `status` is UPPERCASE (`DRAFT|PUBLISHED|ARCHIVED`)
 - Errors: `400 VALIDATION_ERROR` (id not a UUID), `404 ARTICLE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/articles/upload-image
+
+Upload an article cover image to Cloudinary and get its URL back. Unlike avatars, each upload gets a **unique** Cloudinary id (no overwrite); sized to the Open Graph 1.91:1 ratio (1200×630). The URL is returned only — persisting it onto an article is a separate `POST`/`PATCH /admin/articles` call.
+
+- Auth: required (`requireRole('admin')`)
+- Content-Type: `multipart/form-data` — field `image` (JPEG/PNG/WebP, ≤ 5 MB)
+- Response: `200 OK` — `{ "imageUrl": "https://res.cloudinary.com/.../nutricoach/articles/...jpg" }`
+- Errors: `400 NO_FILE_PROVIDED`, `400 EMPTY_FILE`, `400 INVALID_FILE_TYPE`, `400 FILE_TOO_LARGE`, `400 INVALID_FIELD_NAME` (wrong form field), `500 UPLOAD_FAILED`
+
+---
+
+### GET /api/v1/admin/articles
+
+List/search **all** articles regardless of status. Ordered by `createdAt` DESC.
+
+- Auth: required (`requireRole('admin')`)
+- Request: query
+  - `status` (optional): enum `DRAFT|PUBLISHED|ARCHIVED`
+  - `category` (optional): category **slug**
+  - `search` (optional, 1–100): trigram + `ILIKE` on `title`
+  - `page` (default 1), `limit` (default 20, max 50)
+- Response: `200 OK` — paginated. Each item = the public list-item shape **plus** `status` (UPPERCASE) and `createdAt`.
+- Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/articles
+
+Create a **draft** article. `slug` is auto-generated from the title (VN diacritic strip + 4-hex suffix) and is **immutable**; `readingTimeMin` is computed (200 wpm).
+
+- Auth: required (`requireRole('admin')`)
+- Request: body
+  - `title` (3–200), `excerpt` (20–300), `body` (≥ 50, Markdown), `categoryId` (UUID)
+  - `coverImageUrl` (optional, ≤ 512, nullable), `tags` (optional, ≤ 10 items, each ≤ 40 chars)
+- Response: `201 Created` — admin view:
+  ```json
+  {
+    "id": "uuid", "slug": "...", "title": "...", "excerpt": "...", "body": "...",
+    "categoryId": "uuid", "coverImageUrl": null, "tags": ["..."],
+    "readingTimeMin": 4, "viewCount": 0, "status": "DRAFT",
+    "publishedAt": null, "archivedAt": null, "createdAt": "...", "updatedAt": "..."
+  }
+  ```
+- Errors: `400 VALIDATION_ERROR`, `404 CATEGORY_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### PATCH /api/v1/admin/articles/:id
+
+Update article fields. At least one field required. **`slug` is NOT recomputed** when the title changes (immutable). Changing `body` recomputes `readingTimeMin`.
+
+- Auth: required (`requireRole('admin')`)
+- Request: path `id` (UUID); body — any of `title`, `excerpt`, `body`, `categoryId`, `coverImageUrl`, `tags` (same constraints as create)
+- Response: `200 OK` — admin view (same shape as create)
+- Errors: `400 VALIDATION_ERROR`, `404 ARTICLE_NOT_FOUND`, `404 CATEGORY_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/articles/:id/publish
+
+Transition `draft → published`; sets `publishedAt`. Only a `draft` can be published.
+
+- Auth: required (`requireRole('admin')`)
+- Request: path `id` (UUID); no body
+- Response: `200 OK` — admin view with `status: "PUBLISHED"`, `publishedAt` set
+- Errors: `400 VALIDATION_ERROR`, `404 ARTICLE_NOT_FOUND`, `409 INVALID_ARTICLE_STATUS_TRANSITION` (not a draft), `422 ARTICLE_INCOMPLETE` (body < 50 chars), `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/articles/:id/archive
+
+Transition any non-archived status → `archived`; sets `archivedAt`.
+
+- Auth: required (`requireRole('admin')`)
+- Request: path `id` (UUID); no body
+- Response: `200 OK` — admin view with `status: "ARCHIVED"`, `archivedAt` set
+- Errors: `400 VALIDATION_ERROR`, `404 ARTICLE_NOT_FOUND`, `409 INVALID_ARTICLE_STATUS_TRANSITION` (already archived), `500 INTERNAL_ERROR`
+
+---
+
+### POST /api/v1/admin/categories
+
+Create an article category.
+
+- Auth: required (`requireRole('admin')`)
+- Request: body
+  - `slug` (required): lowercase, `^[a-z0-9-]{2,64}$`
+  - `name` (required, 2–100)
+  - `displayOrder` (optional int 0–1000, default 0)
+- Response: `201 Created` — `{ "id": "uuid", "slug": "...", "name": "...", "displayOrder": 0, "createdAt": "..." }`
+- Errors: `400 VALIDATION_ERROR`, `409 CATEGORY_SLUG_EXISTS`, `500 INTERNAL_ERROR`
 
 ---
 
@@ -1789,7 +1885,7 @@ User growth analytics over a date range. Day buckets are computed in the `Asia/H
 
 ## Content — `/api/v1/content`
 
-Public-ish (any authenticated user) discovery of published PT courses. The `/content` router is reserved for future articles work; only PT-course endpoints are wired today.
+Public-ish (any authenticated user) discovery of published PT courses **and articles**. All `/content` endpoints require auth (a deliberate deviation from the spec's "PUBLIC", kept for router consistency). Article `body` is raw Markdown — render it client-side.
 
 ### GET /api/v1/content/discover/pt-courses
 
@@ -1821,6 +1917,56 @@ Public-ish (any authenticated user) discovery of published PT courses. The `/con
 - Auth: required
 - Response: `200 OK` — full course detail (modules + lessons) + PT excerpt. Returns `404 COURSE_NOT_FOUND` for unpublished courses (no draft/archived leakage).
 - Errors: `400 VALIDATION_ERROR`, `404 COURSE_NOT_FOUND`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/content/articles
+
+List published articles (newest first).
+
+- Auth: required
+- Request: query
+  - `category` (optional, ≤64): category **slug** (resolved to uuid server-side; unknown slug → empty result, not an error)
+  - `tag` (optional, ≤40): exact match against `articles.tags[]`
+  - `search` (optional, 1–100): `pg_trgm` similarity (> 0.2) **or** `ILIKE` against `title`
+  - `page` (default 1), `limit` (default 20, max 50)
+- Filter: only `status = 'published'`.
+- Sort: with `search`, by title similarity desc then `publishedAt` desc; without, by `publishedAt` desc.
+- Response: `200 OK` — paginated. Each list item (**no `body`**):
+  ```json
+  {
+    "id": "uuid", "slug": "...", "title": "...", "excerpt": "...",
+    "coverImageUrl": null,
+    "category": { "slug": "nutrition", "name": "Dinh dưỡng" },
+    "author": { "fullName": "Admin", "avatarUrl": null },
+    "tags": ["..."], "readingTimeMin": 4, "viewCount": 12, "publishedAt": "..."
+  }
+  ```
+- Errors: `400 VALIDATION_ERROR`, `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/content/categories
+
+- Auth: required
+- Request: none
+- Response: `200 OK` — **array (not paginated)**, ordered by `displayOrder` asc then `name` asc:
+  ```json
+  [{ "id": "uuid", "slug": "nutrition", "name": "Dinh dưỡng", "displayOrder": 0, "articleCount": 7 }]
+  ```
+  `articleCount` counts **published** articles only. Use `slug` to filter `GET /content/articles?category=<slug>`.
+- Errors: `500 INTERNAL_ERROR`
+
+---
+
+### GET /api/v1/content/articles/:slug
+
+- Auth: required
+- Request: path — `slug` (1–280 chars)
+- Filter: only `status = 'published'`; draft/archived → `404 ARTICLE_NOT_FOUND`.
+- Side effect: increments `viewCount` (fire-and-forget, no transaction); the returned `viewCount` already reflects the +1.
+- Response: `200 OK` — full detail = the list-item shape **plus** `body` (raw Markdown).
+- Errors: `400 VALIDATION_ERROR`, `404 ARTICLE_NOT_FOUND`, `500 INTERNAL_ERROR`
 
 ---
 

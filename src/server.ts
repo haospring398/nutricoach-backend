@@ -26,6 +26,16 @@ async function start() {
 ──────────────────────────────────────`);
   });
 
+  server.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`\n❌ Port ${env.PORT} is already in use.`);
+      console.error(`   Kill it first:  fuser -k ${env.PORT}/tcp\n`);
+    } else {
+      console.error('❌ Server error:', err);
+    }
+    process.exit(1);
+  });
+
   // ── Graceful shutdown ───────────────────────────────────────
   const shutdown = async (signal: string) => {
     console.log(`\n⚠️  ${signal} received — shutting down gracefully...`);

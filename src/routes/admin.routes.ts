@@ -1128,7 +1128,7 @@ router.patch('/quests/:id', adminUpdateQuestHandler);
  *     tags: [Admin]
  *     summary: List and search users
  *     security:
- *       - bearerAuth: []
+ *       - BearerAuth: []
  *     parameters:
  *       - in: query
  *         name: search
@@ -1183,7 +1183,7 @@ router.get('/users', listUsers);
  *     tags: [Admin]
  *     summary: Get full user profile with metrics, points and subscription
  *     security:
- *       - bearerAuth: []
+ *       - BearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -1214,7 +1214,7 @@ router.get('/users/:id', getUserById);
  *     tags: [Admin]
  *     summary: Ban a user account and force logout
  *     security:
- *       - bearerAuth: []
+ *       - BearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -1262,7 +1262,7 @@ router.post('/users/:id/ban', banUser);
  *     tags: [Admin]
  *     summary: Unban a user account
  *     security:
- *       - bearerAuth: []
+ *       - BearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -1293,7 +1293,7 @@ router.post('/users/:id/unban', unbanUser);
  *     tags: [Admin]
  *     summary: Change user role
  *     security:
- *       - bearerAuth: []
+ *       - BearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -1341,7 +1341,7 @@ router.patch('/users/:id/role', changeUserRole);
  *     tags: [Admin]
  *     summary: User growth analytics by date range
  *     security:
- *       - bearerAuth: []
+ *       - BearerAuth: []
  *     parameters:
  *       - in: query
  *         name: range

@@ -16,7 +16,7 @@
 - **Enum:** API luôn trả **UPPERCASE** (xem [data-models.md](./data-models.md)).
 - **Idempotency:** `POST /payment/checkout` và `POST /pt/withdrawals` nhận header `Idempotency-Key` (Redis 24h TTL + DB unique làm safety net). First call → 201, replay → 200.
 
-**Tổng: ~98 route handlers** (106 endpoint theo phân rã logic — `/admin` mang nhiều module con). Phân theo mount:
+**Tổng: 106 route handlers** (`router.METHOD(...)` đếm trực tiếp từ `src/routes/*`, chưa kể `GET /health`). `/admin` mang 32 handler thuộc nhiều module con. Phân theo mount:
 
 ---
 
@@ -70,6 +70,8 @@
 
 ## `/dashboard` — [dashboard.routes.ts](../src/routes/dashboard.routes.ts) (1)
 
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
 | GET | `/dashboard/user` | auth | Dashboard tổng hợp (calo, quest, streak…) |
 
 ## `/payment` — [payment.routes.ts](../src/routes/payment.routes.ts) (5)
@@ -119,7 +121,7 @@
 | POST | `/pt/withdrawals` | role:pt + Idempotency-Key | Yêu cầu rút tiền |
 | GET | `/pt/withdrawals` | role:pt | Lịch sử rút tiền |
 
-> Lưu ý: số dòng `router.METHOD` (20) gồm các route `students/:studentId/*` và `courses/:id/*`; con số có thể nhỉnh hơn liệt kê do middleware chain. Đối chiếu Swagger để chính xác.
+> Lưu ý: đúng **20** `router.METHOD` (đã verify từ `pt.routes.ts`) — gồm cả nhánh `courses/:id/*` và `students/:studentId/*`.
 
 ## `/content` — [content.routes.ts](../src/routes/content.routes.ts) (5)
 
@@ -145,6 +147,8 @@
 
 ## `/scan` — [scan.routes.ts](../src/routes/scan.routes.ts) (1)
 
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
 | POST | `/scan` | auth | AI food scan (ảnh → Gemini → match catalog) |
 
 ## `/admin` — [admin.routes.ts](../src/routes/admin.routes.ts) (32 — role:admin router-wide)

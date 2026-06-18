@@ -175,7 +175,7 @@ src/
 │
 ├── db/
 │   ├── migrate.ts          Migration runner (`npm run db:migrate`)
-│   ├── migrations/         0000–0018 .sql files + meta/ (drizzle journal+snapshots)
+│   ├── migrations/         0000–0019 .sql files + meta/ (drizzle journal+snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts       CSV → food_items  (`npm run seed:foods`)
 │       └── exercises.seed.ts   JSON → exercises  (`npm run seed:exercises`)
@@ -226,9 +226,9 @@ need `./dist/routes/*.js` added.
 - **pt_profiles** — `id`, `userId` → users (cascade, **unique**), `bio`, `specialties` (text[]), `yearsOfExperience`, bank fields, `commissionPercent` (int, default 10), `approvedFromVerificationId?` → pt_verifications, `createdAt`, `updatedAt`
 
 ### `course.model.ts` (Phase 2)
-- **courses** — `id`, `ptId` → users (restrict), `title` (varchar 200), `description` (text), `thumbnailUrl?` (varchar 512), `priceVnd` (int), `durationDays` (int), `tags` (text[]), `status` (course_status, default `draft`), `publishedAt?`, `archivedAt?`, `totalLessons` (int, **service-maintained denormalized count**), `createdAt`, `updatedAt`. Indexes on `pt_id`, `status`, + trigram GIN on `title` (migration). CHECKs: price 50k–50M, duration 1–365, `char_length(trim(title)) ≥ 3`.
+- **courses** — `id`, `ptId` → users (restrict), `title` (varchar 200), `description` (text), `thumbnailUrl?` (varchar 512), `thumbnailPublicId?` (varchar 512 — Cloudinary public_id, **migration 0019**; lets replace/cleanup destroy the old asset by id and compensate-delete an orphan if the DB write fails), `priceVnd` (int), `durationDays` (int), `tags` (text[]), `status` (course_status, default `draft`), `publishedAt?`, `archivedAt?`, `totalLessons` (int, **service-maintained denormalized count**), `createdAt`, `updatedAt`. Indexes on `pt_id`, `status`, + trigram GIN on `title` (migration). CHECKs: price 50k–50M, duration 1–365, `char_length(trim(title)) ≥ 3`.
 - **course_modules** — `id`, `courseId` → courses (cascade), `title` (varchar 200), `displayOrder` (int), timestamps. **UNIQUE (course_id, display_order)**. CHECK `display_order ≥ 0`.
-- **course_lessons** — `id`, `moduleId` → course_modules (cascade), `title` (varchar 200), `youtubeVideoId?` (varchar 32 — nullable until publish), `cloudinaryVideoUrl?` (varchar 512 — Cloudinary-hosted video, alternative to `youtubeVideoId`; added in 0018), `durationMin` (int default 0), `displayOrder` (int), timestamps. **UNIQUE (module_id, display_order)**. CHECKs: order ≥ 0, duration 0–600. A lesson is publishable if it has **either** `youtubeVideoId` or `cloudinaryVideoUrl`.
+- **course_lessons** — `id`, `moduleId` → course_modules (cascade), `title` (varchar 200), `youtubeVideoId?` (varchar 32 — nullable until publish), `cloudinaryVideoUrl?` (varchar 512 — Cloudinary-hosted video, alternative to `youtubeVideoId`; added in 0018), `cloudinaryVideoPublicId?` (varchar 512 — Cloudinary public_id of that video, **migration 0019**; used for replace cleanup + compensating delete), `durationMin` (int default 0), `displayOrder` (int), timestamps. **UNIQUE (module_id, display_order)**. CHECKs: order ≥ 0, duration 0–600. A lesson is publishable if it has **either** `youtubeVideoId` or `cloudinaryVideoUrl`.
 - **enrollments** — `id`, `userId` → users (cascade), `courseId` → courses (restrict), `ptId` → users (restrict, denormalized from course), `transactionId` → transactions (restrict), `status` (enrollment_status, default `active`), `enrolledAt`, `completedAt?`, timestamps. **UNIQUE (transaction_id)** (webhook idempotency). Partial unique **(user_id, course_id) WHERE status != 'refunded'** (no double-enroll). Indexes on user/pt/course. *Owned by Phase 3 conceptually; ships in Phase 2 because the payment webhook writes it.*
 
 ### `pt-assignment.model.ts` (Phase 3)
@@ -581,11 +581,23 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 106 endpoints annotated).
     independent, bundled in small-icu, and avoids re-parsing a non-ISO string through `new Date()`. Applied in
     `quest.service.ts:getVnDateString` and `dashboard.service.ts:getTodayInVn`.
 
+### Upload hardening gotchas
+24. **All uploads are magic-byte sniffed + course media is orphan-free (migration 0019)** — beyond the
+    multer mimetype whitelist, `upload.middleware.ts` checks the file's leading bytes against the declared
+    `Content-Type` (`magicBytesMatch`): a spoofed `Content-Type` carrying a mismatched body is rejected as
+    `400 INVALID_FILE_TYPE`. Errors are stashed on `req.uploadError` (no global error handler) and converted
+    by the shared `lib/upload-error.ts → toUploadApiError` helper (every `MulterError` → 400, never 500).
+    Lesson video uses **diskStorage** (`os.tmpdir()`, bounded RAM for the 100 MB cap), the temp file is
+    removed on `res.on('close')`, and the Cloudinary upload is bounded by a **120 s timeout** → a stall
+    surfaces as `500 UPLOAD_FAILED`. Course thumbnail/video persist their Cloudinary **public_id** (`0019`)
+    so a replace destroys the old asset by id and a DB-write failure after upload compensate-deletes the
+    orphan — same orphan-free guarantee as avatar (quirk #20), but via public_id instead of `overwrite`.
+
 ---
 
 ## Migrations to date
 
-`0000`–`0018` applied in order:
+`0000`–`0019` applied in order:
 
 | # | Tag | What |
 |---|---|---|
@@ -608,6 +620,7 @@ Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 106 endpoints annotated).
 | 0016 | reward_redemptions | **quest** rewards (5 seeded), reward_redemptions + redemption_status enum *(hand-written)* |
 | 0017 | admin_user_management | **admin** users ban columns (`is_banned`, `ban_reason`, `banned_at`) *(hand-written)* |
 | 0018 | lesson_cloudinary_video | **PT P2** course_lessons.cloudinary_video_url *(hand-written)* |
+| 0019 | course_media_public_id | **PT P2** courses.thumbnail_public_id + course_lessons.cloudinary_video_public_id (replace cleanup + compensating delete) *(hand-written)* |
 
 Run `npm run db:migrate` to apply; `npm run seed:foods` and `npm run seed:exercises`
 to populate catalogs. (Quest catalog and article categories are seeded by their migrations,

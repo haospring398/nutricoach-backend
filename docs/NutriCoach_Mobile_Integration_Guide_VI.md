@@ -700,7 +700,7 @@ Cập nhật sau onboarding. Yêu cầu ít nhất một trường. Tính toán 
 
 **Response chính:** `data.avatarUrl` (URL Cloudinary ổn định — cùng URL khi tải lại)
 
-**Lỗi:** `400 NO_FILE_PROVIDED`, `400 INVALID_FILE_TYPE`, `400 FILE_TOO_LARGE`, `500 UPLOAD_FAILED`
+**Lỗi:** xem §4 → *Lỗi Upload File* cho toàn bộ mã (`NO_FILE_PROVIDED`, `INVALID_FILE_TYPE` — gồm cả kiểm tra anti-spoof, `FILE_TOO_LARGE`, `INVALID_FIELD_NAME`, `EMPTY_FILE`, `UPLOAD_FAILED`)
 
 ---
 
@@ -1030,6 +1030,8 @@ Upload video bài học. **`multipart/form-data`**, field `video` (MP4, ≤100MB
 
 **Response:** `200 OK` — `{ lessonId, videoUrl }`. Cập nhật `course_lessons.cloudinaryVideoUrl`.
 
+**Lỗi:** xem §4 → *Lỗi Upload File*. Riêng video: chỉ nhận `video/mp4` ≤ 100 MB; upload kéo dài quá **120 giây** sẽ thất bại với `500 UPLOAD_FAILED`.
+
 > 📌 Sau khi upload, `GET /pt/courses/:id` trả về `cloudinaryVideoUrl` cho lesson tương ứng (xem §5 — Video Bài Học Khóa Học PT).
 
 ---
@@ -1222,13 +1224,27 @@ Lưu ý: `quest` là `null` nếu đã đạt giới hạn ngày của AI_SCAN (
 | `DIARY_INCOMPLETE` | `diary-lock` khi chưa ghi đủ 3 bữa | Nhắc người dùng ghi bữa còn thiếu |
 | `ALREADY_VERIFIED` | Gửi lại xác minh cho email đã xác minh | "Email của bạn đã được xác minh" |
 
+### Lỗi Upload File
+
+Áp dụng cho mọi endpoint `multipart/form-data` (avatar, thumbnail khóa học, video bài học). Ảnh: JPEG/PNG/WebP ≤ 5 MB · Video: MP4 ≤ 100 MB.
+
+| Mã | Status | Khi nào | Hành động |
+|---|---|---|---|
+| `NO_FILE_PROVIDED` | 400 | Request không có file trong field mong đợi | Kiểm tra tên field (`avatar`/`thumbnail`/`video`) |
+| `INVALID_FIELD_NAME` | 400 | File gửi dưới tên field sai | Dùng đúng tên field như tài liệu |
+| `EMPTY_FILE` | 400 | File 0 byte | Chọn lại file hợp lệ |
+| `INVALID_FILE_TYPE` | 400 | Kiểu MIME không nằm trong whitelist, **HOẶC nội dung file không khớp `Content-Type` đã khai** (server kiểm tra magic-byte để chống giả mạo) | Gửi đúng định dạng cho phép; **không** đặt `Content-Type` thủ công không khớp với bytes thật của file |
+| `FILE_TOO_LARGE` | 400 | Vượt giới hạn dung lượng | Nén/giảm kích thước trước khi gửi |
+
+> ⚠️ **Lưu ý anti-spoof:** đặt header `Content-Type: image/png` cho một file không phải PNG **sẽ bị từ chối** với `INVALID_FILE_TYPE`. Hãy để thư viện HTTP tự suy ra `Content-Type` từ file thật, hoặc đảm bảo nó khớp với nội dung thực tế.
+
 ### Lỗi Dịch Vụ
 
 | Mã | Status | Khi nào | Hành động |
 |---|---|---|---|
 | `AI_SERVICE_UNAVAILABLE` | 503 | Microservice AI bị lỗi | Hiển thị thông báo retry |
 | `PAYOS_UNAVAILABLE` | 503 | Cổng thanh toán bị lỗi | Hiển thị thông báo retry |
-| `UPLOAD_FAILED` | 500 | Lỗi Cloudinary | Hiển thị thông báo retry |
+| `UPLOAD_FAILED` | 500 | Lỗi Cloudinary, hoặc upload video vượt quá timeout 120 giây phía server | Hiển thị thông báo retry |
 | `INTERNAL_ERROR` | 500 | Lỗi server không mong đợi | Màn hình lỗi chung, ghi log để debug |
 
 ### Mẫu Xử Lý Lỗi (Pseudocode)

@@ -91,7 +91,7 @@ src/
 │
 ├── db/
 │   ├── migrate.ts           # Migration runner (npm run db:migrate)
-│   ├── migrations/          # 0000–0018 .sql + meta/ (journal + snapshots)
+│   ├── migrations/          # 0000–0019 .sql + meta/ (journal + snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts    # CSV → food_items (npm run seed:foods)
 │       └── exercises.seed.ts# JSON → exercises (npm run seed:exercises)

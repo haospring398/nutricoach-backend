@@ -24,6 +24,10 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
   - `500 INTERNAL_ERROR` — DB lookup for the user failed
 - **Any endpoint with a Zod schema** can return `400 VALIDATION_ERROR` if validation fails; the `message` is the first failing rule.
 - **Unhandled errors** in any controller return `500 INTERNAL_ERROR`.
+- **File uploads** (avatar, course thumbnail, lesson video, admin article image) all share one `multipart/form-data` contract and the same client-error codes:
+  - Images: `image/jpeg`, `image/png`, `image/webp`, ≤ 5 MB. Video (lesson only): `video/mp4`, ≤ 100 MB.
+  - **Anti-spoof:** the server checks the file's leading bytes (magic number) against the declared `Content-Type`. A correctly-whitelisted `Content-Type` carrying a mismatched body is still rejected as `400 INVALID_FILE_TYPE`. So `INVALID_FILE_TYPE` means *either* a non-whitelisted type *or* a body that doesn't match its declared type.
+  - `400 NO_FILE_PROVIDED` (no file part) · `400 EMPTY_FILE` (zero-byte file) · `400 FILE_TOO_LARGE` (over the cap) · `400 INVALID_FIELD_NAME` (file sent under the wrong field name) · `500 UPLOAD_FAILED` (Cloudinary error).
 
 ## Implementation status
 
@@ -415,8 +419,10 @@ All endpoints require auth.
   ```
 - Errors:
   - `400 NO_FILE_PROVIDED` — no file in the `avatar` field
-  - `400 INVALID_FILE_TYPE` — MIME type not in the whitelist
+  - `400 EMPTY_FILE` — the uploaded file is zero bytes
+  - `400 INVALID_FILE_TYPE` — declared MIME type not in the whitelist, **or the file's leading bytes don't match the declared `Content-Type`** (a spoofed `Content-Type` is rejected)
   - `400 FILE_TOO_LARGE` — file exceeds 5 MB
+  - `400 INVALID_FIELD_NAME` — file sent under a field other than `avatar`
   - `500 UPLOAD_FAILED` — Cloudinary upload failed
 
 ---
@@ -1447,6 +1453,7 @@ Upload a course cover image to Cloudinary and persist it on `courses.thumbnail_u
   ```
 - Errors:
   - `400 NO_FILE_PROVIDED` / `INVALID_FILE_TYPE` / `FILE_TOO_LARGE` / `INVALID_FIELD_NAME` (field not named `thumbnail`) / `EMPTY_FILE`
+  - `INVALID_FILE_TYPE` also fires when the file's bytes don't match the declared `Content-Type` (anti-spoof), not only on a non-whitelisted MIME type.
   - `403 FORBIDDEN` (not a PT)
   - `404 COURSE_NOT_FOUND`
   - `500 UPLOAD_FAILED` — Cloudinary upload failed
@@ -1466,10 +1473,10 @@ Upload a lesson video to Cloudinary and persist it on `course_lessons.cloudinary
   { "success": true, "data": { "lessonId": "uuid", "videoUrl": "https://res.cloudinary.com/<cloud>/video/upload/.../course-videos/...mp4" } }
   ```
 - Errors:
-  - `400 NO_FILE_PROVIDED` / `INVALID_FILE_TYPE` (only MP4) / `FILE_TOO_LARGE` (>100 MB) / `INVALID_FIELD_NAME` (field not named `video`) / `EMPTY_FILE`
+  - `400 NO_FILE_PROVIDED` / `INVALID_FILE_TYPE` (only MP4 — also rejects a non-MP4 body sent with a spoofed `video/mp4` `Content-Type`) / `FILE_TOO_LARGE` (>100 MB) / `INVALID_FIELD_NAME` (field not named `video`) / `EMPTY_FILE`
   - `403 FORBIDDEN` (not a PT)
   - `404 COURSE_NOT_FOUND` / `LESSON_NOT_FOUND`
-  - `500 UPLOAD_FAILED` — Cloudinary upload failed
+  - `500 UPLOAD_FAILED` — Cloudinary upload failed, or the upload exceeded the server-side 120 s Cloudinary timeout
 
 ---
 
@@ -2311,11 +2318,11 @@ Soft-delete — sets `isActive = false`. **Refuses** (409) if the reward has exi
 | INVALID_JSON | payment webhook (unparseable body) | 400 |
 | REFERENCE_REQUIRED | quests trigger (WORKOUT_DONE without referenceId) | 400 |
 | INVALID_REFERENCE | quests trigger (WORKOUT_DONE session not found / not yours / wrong date) | 400 |
-| NO_FILE_PROVIDED | users avatar upload / pt course thumbnail + lesson video | 400 |
-| INVALID_FILE_TYPE | users avatar upload / pt course thumbnail + lesson video | 400 |
-| FILE_TOO_LARGE | users avatar upload / pt course thumbnail + lesson video | 400 |
-| INVALID_FIELD_NAME | pt course thumbnail + lesson video (wrong multipart field name) | 400 |
-| EMPTY_FILE | pt course thumbnail + lesson video (zero-byte file) | 400 |
+| NO_FILE_PROVIDED | any upload (avatar / course thumbnail + lesson video / admin article image) — no file part | 400 |
+| INVALID_FILE_TYPE | any upload — declared MIME not whitelisted **OR file bytes don't match the declared `Content-Type`** (anti-spoof magic-byte check) | 400 |
+| FILE_TOO_LARGE | any upload — over the size cap (images/thumbnail/article image > 5 MB · lesson video > 100 MB) | 400 |
+| INVALID_FIELD_NAME | any upload — file sent under the wrong multipart field name | 400 |
+| EMPTY_FILE | any upload — zero-byte file | 400 |
 | CANNOT_BAN_SELF | admin ban user (own id) | 400 |
 | CANNOT_CHANGE_OWN_ROLE | admin change role (own id) | 400 |
 | UNAUTHORIZED | auth middleware / authed controllers | 401 |
@@ -2364,7 +2371,7 @@ Soft-delete — sets `isActive = false`. **Refuses** (409) if the reward has exi
 | CURRICULUM_INCOMPLETE | pt course publish (lessons missing youtubeVideoId); includes `details` array | 422 |
 | ARTICLE_INCOMPLETE | admin article publish (body too short) | 422 |
 | WEBHOOK_PROCESSING_ERROR | payment webhook (processing failed; PayOS retries) | 500 |
-| UPLOAD_FAILED | users avatar upload (Cloudinary) | 500 |
+| UPLOAD_FAILED | any upload — Cloudinary failure; for lesson video also a stall past the 120 s Cloudinary timeout | 500 |
 | PAYOS_UNAVAILABLE | payment checkout (PayOS call failed) | 503 |
 | AI_SERVICE_UNAVAILABLE | scan, meal-plans/generate | 503 |
 | INTERNAL_ERROR | any (incl. middleware DB lookup, unknown errors) | 500 |

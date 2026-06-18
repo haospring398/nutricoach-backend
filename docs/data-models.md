@@ -1,7 +1,7 @@
 # Data Models — NutriCoach Backend
 
 > Tài liệu schema cơ sở dữ liệu. Sinh tự động bởi workflow `bmad-document-project` (exhaustive scan, 2026-06-18).
-> Nguồn chuẩn: các file `src/models/*.model.ts` (Drizzle table definitions) + migrations `src/db/migrations/0000–0018`.
+> Nguồn chuẩn: các file `src/models/*.model.ts` (Drizzle table definitions) + migrations `src/db/migrations/0000–0019`.
 > Tham khảo chi tiết bổ sung: [CODEBASE_CONTEXT.md §2 & §4](./CODEBASE_CONTEXT.md).
 
 ## Tổng quan
@@ -121,14 +121,14 @@ GIN index trên `muscle_groups` + trigram trên tên → migration SQL.
 ## PT — courses & enrollments — [course.model.ts](../src/models/course.model.ts)
 
 ### `courses`
-`id` · `ptId` → users (restrict) · `title` varchar(200) · `description` text · `thumbnailUrl?` · `priceVnd` int · `durationDays` int · `tags` text[] · `status` (draft/published/archived, default draft) · `publishedAt?`/`archivedAt?` · `totalLessons` int (**đếm denormalized do service duy trì**) · timestamps.
+`id` · `ptId` → users (restrict) · `title` varchar(200) · `description` text · `thumbnailUrl?` · `thumbnailPublicId?` varchar(512) (**migration 0019** — Cloudinary public_id để replace/cleanup destroy asset cũ theo id, không parse URL) · `priceVnd` int · `durationDays` int · `tags` text[] · `status` (draft/published/archived, default draft) · `publishedAt?`/`archivedAt?` · `totalLessons` int (**đếm denormalized do service duy trì**) · timestamps.
 CHECK (migration): price 50k–50M, duration 1–365, `char_length(trim(title)) ≥ 3`. Trigram GIN trên title.
 
 ### `course_modules`
 `id` · `courseId` → courses (cascade) · `title` · `displayOrder` · timestamps. **UNIQUE (course_id, display_order)**.
 
 ### `course_lessons`
-`id` · `moduleId` → course_modules (cascade) · `title` · `youtubeVideoId?` varchar(32) · `cloudinaryVideoUrl?` varchar(512) (migration 0018) · `durationMin` int default 0 · `displayOrder` · timestamps. **UNIQUE (module_id, display_order)**.
+`id` · `moduleId` → course_modules (cascade) · `title` · `youtubeVideoId?` varchar(32) · `cloudinaryVideoUrl?` varchar(512) (migration 0018) · `cloudinaryVideoPublicId?` varchar(512) (**migration 0019** — public_id của video để compensating-delete/replace cleanup) · `durationMin` int default 0 · `displayOrder` · timestamps. **UNIQUE (module_id, display_order)**.
 > Lesson publishable nếu có **một trong hai**: `youtubeVideoId` hoặc `cloudinaryVideoUrl`.
 
 ### `enrollments` (webhook payment ghi vào)
@@ -200,7 +200,7 @@ Row id trở thành `referenceId` server-verified cho quest AI_SCAN.
 
 ## Migrations
 
-18 file SQL `0000_*` → `0018_*` trong [src/db/migrations/](../src/db/migrations/) + `meta/` (drizzle journal + snapshots).
+19 file SQL `0000_*` → `0019_*` trong [src/db/migrations/](../src/db/migrations/) + `meta/` (drizzle journal + snapshots).
 
 | Migration | Nội dung |
 |---|---|
@@ -214,5 +214,6 @@ Row id trở thành `referenceId` server-verified cho quest AI_SCAN.
 | 0016 | reward redemption (rewards, reward_redemptions) |
 | 0017 | admin user management (ban columns) |
 | 0018 | lesson cloudinary video (course_lessons.cloudinary_video_url) |
+| 0019 | course media public_id (courses.thumbnail_public_id + course_lessons.cloudinary_video_public_id) — replace cleanup + compensating delete |
 
 > ⚠️ **Quy tắc migration:** migration thường → `npm run db:generate` + `npm run db:migrate`. Migration viết tay (0010+) áp bằng `psql -f` trực tiếp (drizzle journal hash bị corrupt với file viết tay). Không dùng `db:push` trên production. Xem [project-context.md](../_bmad-output/project-context.md).

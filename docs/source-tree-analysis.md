@@ -7,7 +7,7 @@
 
 ```
 nutricoach-backend/
-├── src/                     # Toàn bộ source TypeScript (95 file, ~20k LOC)
+├── src/                     # Toàn bộ source TypeScript (96 file, ~20k LOC)
 ├── data/seed/               # Dữ liệu seed: vn_food.csv, vn_dishes.csv, exercises.json
 ├── docs/                    # Tài liệu (file này + các doc khác)
 ├── design-artifacts/        # Tài liệu thiết kế UX/asset

@@ -25,7 +25,7 @@
 ## Executive summary
 
 - **Loại:** backend REST API monolith.
-- **Quy mô:** 95 file TS (~20k LOC), 107 route handlers / 12 module, 27 bảng / 20 migration.
+- **Quy mô:** 96 file TS (~20k LOC), 107 route handlers / 12 module, 27 bảng / 21 migration (0000–0020).
 - **Trạng thái:** PT marketplace feature-complete (Phase 1–4). Mới nhất: PT media upload Cloudinary (0018) + course-media public_id cho replace/compensating-delete (0019) + upload hardening (magic-byte anti-spoof, video disk/timeout).
 - **AI:** tách riêng microservice (Gemini 2.5 Flash, LangGraph/ESM, port 4000), backend gọi qua HTTP.
 

@@ -200,7 +200,7 @@ Row id trở thành `referenceId` server-verified cho quest AI_SCAN.
 
 ## Migrations
 
-20 file SQL `0000_*` → `0020_*` trong [src/db/migrations/](../src/db/migrations/) + `meta/` (drizzle journal + snapshots).
+21 file SQL `0000_*` → `0020_*` trong [src/db/migrations/](../src/db/migrations/) + `meta/` (drizzle journal + snapshots).
 
 | Migration | Nội dung |
 |---|---|

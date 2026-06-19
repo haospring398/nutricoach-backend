@@ -92,7 +92,7 @@ Trên event `PAID` đã verify, trong **một DB transaction**, branch theo `pro
 
 ## 8. Migrations & seed
 
-20 migration `0000–0020`. Migration thường: `db:generate` + `db:migrate`. Migration viết tay (0010+) áp `psql -f` (drizzle journal corrupt với file viết tay), không `db:push` production. Seed: `seed:foods` (~2,100 món NIN từ CSV), `seed:exercises` (~40 bài từ JSON). Xem [deployment-guide.md](./deployment-guide.md).
+21 migration `0000–0020`. Migration thường: `db:generate` + `db:migrate`. Migration viết tay (0010+) áp `psql -f` (drizzle journal corrupt với file viết tay), không `db:push` production. Seed: `seed:foods` (~2,100 món NIN từ CSV), `seed:exercises` (~40 bài từ JSON). Xem [deployment-guide.md](./deployment-guide.md).
 
 ## 9. Testing strategy
 

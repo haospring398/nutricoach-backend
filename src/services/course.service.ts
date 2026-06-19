@@ -62,9 +62,13 @@ export interface CourseLessonView {
   id: string;
   title: string;
   youtubeVideoId: string | null;
-  // Owner-only: omitted from the public course detail so the paid Cloudinary
-  // CDN URL is never leaked to the catalog. See buildModulesView flag.
+  // cloudinaryVideoUrl is exposed when the viewer sees all videos (owner/
+  // enrolled) OR the lesson is a public preview (isPreview). Paid lessons in the
+  // public catalog omit it so the Cloudinary CDN URL is never leaked.
   cloudinaryVideoUrl?: string | null;
+  // Lets the client render the unlock/lock affordance without inferring it from
+  // the presence of cloudinaryVideoUrl.
+  isPreview: boolean;
   durationMin: number;
   displayOrder: number;
 }
@@ -158,9 +162,11 @@ const mapCourseSummary = (c: Course): CourseSummary => ({
   createdAt: c.createdAt.toISOString(),
 });
 
+// `viewerSeesAllVideos` = owner/enrolled (every lesson's cloudinaryVideoUrl is
+// returned). When false (public catalog), only preview lessons expose it.
 const buildModulesView = async (
   courseId: string,
-  includeCloudinaryVideo = false,
+  viewerSeesAllVideos = false,
 ): Promise<CourseModuleView[]> => {
   const moduleRows = await db
     .select()
@@ -184,10 +190,11 @@ const buildModulesView = async (
       id: l.id,
       title: l.title,
       youtubeVideoId: l.youtubeVideoId,
+      isPreview: l.isPreview,
       durationMin: l.durationMin,
       displayOrder: l.displayOrder,
     };
-    if (includeCloudinaryVideo) {
+    if (viewerSeesAllVideos || l.isPreview) {
       view.cloudinaryVideoUrl = l.cloudinaryVideoUrl;
     }
     lessonsByModule.get(l.moduleId)!.push(view);
@@ -266,6 +273,7 @@ export const createCourse = async (
         youtubeVideoId: l.youtubeVideoId ?? null,
         durationMin: l.durationMin ?? 0,
         displayOrder: l.displayOrder,
+        isPreview: l.isPreview ?? false,
       })),
     );
 
@@ -445,6 +453,7 @@ export const replaceCurriculum = async (
         youtubeVideoId: l.youtubeVideoId ?? null,
         durationMin: l.durationMin ?? 0,
         displayOrder: l.displayOrder,
+        isPreview: l.isPreview ?? false,
       })),
     );
 
@@ -644,6 +653,55 @@ export const uploadLessonVideo = async (
   }
 
   return { lessonId, videoUrl: secureUrl };
+};
+
+interface SetLessonPreviewResult {
+  lessonId: string;
+  isPreview: boolean;
+}
+
+/**
+ * Toggles a lesson's public-preview flag (xem thử). Verifies the course belongs
+ * to the PT AND the lesson belongs to that course (lesson → module → course;
+ * 404 hides other PTs' courses). NOT gated by the curriculum lock — flipping
+ * visibility changes no curriculum structure, so it must work even after a
+ * course has enrollments.
+ */
+export const setLessonPreview = async (
+  ptId: string,
+  courseId: string,
+  lessonId: string,
+  isPreview: boolean,
+): Promise<SetLessonPreviewResult> => {
+  const [c] = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(and(eq(courses.id, courseId), eq(courses.ptId, ptId)))
+    .limit(1);
+
+  if (!c) {
+    throw new CourseError(404, 'COURSE_NOT_FOUND', 'Course not found');
+  }
+
+  const [lesson] = await db
+    .select({ id: courseLessons.id })
+    .from(courseLessons)
+    .innerJoin(courseModules, eq(courseModules.id, courseLessons.moduleId))
+    .where(
+      and(eq(courseLessons.id, lessonId), eq(courseModules.courseId, courseId)),
+    )
+    .limit(1);
+
+  if (!lesson) {
+    throw new CourseError(404, 'LESSON_NOT_FOUND', 'Lesson not found');
+  }
+
+  await db
+    .update(courseLessons)
+    .set({ isPreview, updatedAt: new Date() })
+    .where(eq(courseLessons.id, lessonId));
+
+  return { lessonId, isPreview };
 };
 
 // ── 6. publishCourse ──────────────────────────────────────────

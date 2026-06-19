@@ -13,6 +13,7 @@ import {
   patchCourse,
   publishCourse,
   replaceCurriculum,
+  setLessonPreview,
   uploadCourseThumbnail,
   uploadLessonVideo,
 } from '../services/course.service';
@@ -25,6 +26,7 @@ import {
   listOwnCoursesQuerySchema,
   listPurchasedQuerySchema,
   patchCourseBodySchema,
+  setLessonPreviewBodySchema,
 } from '../validations/course.validation';
 
 const sendError = (
@@ -300,6 +302,24 @@ export const uploadLessonVideoHandler = async (
     }
 
     const data = await uploadLessonVideo(ptId, id, lessonId, req.file);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const setLessonPreviewHandler = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const ptId = requireUser(req, res);
+    if (!ptId) return;
+
+    const { id, lessonId } = lessonVideoParamSchema.parse(req.params);
+    const { isPreview } = setLessonPreviewBodySchema.parse(req.body);
+
+    const data = await setLessonPreview(ptId, id, lessonId, isPreview);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

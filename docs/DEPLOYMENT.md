@@ -107,7 +107,7 @@ CLOUDINARY_API_SECRET=<api_secret>
 npm run db:migrate
 ```
 
-Lệnh này tạo toàn bộ **27 tables** từ migrations `0000–0019`.  
+Lệnh này tạo toàn bộ **27 tables** từ migrations `0000–0020`.  
 **Phải chạy trước `npm start`.**
 
 > ⚠️ Migration viết tay (`0010+`) nên áp bằng `psql -f <file>.sql` trực tiếp thay vì `db:migrate` (drizzle journal hash bị corrupt với file viết tay). Xem `_bmad-output/project-context.md`.

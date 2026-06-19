@@ -10,6 +10,7 @@ const lessonSchema = z.object({
     .optional(),
   durationMin: z.number().int().min(0).max(600).default(0),
   displayOrder: z.number().int().min(0),
+  isPreview: z.boolean().default(false),
 });
 
 const moduleSchema = z.object({
@@ -99,6 +100,10 @@ export const lessonVideoParamSchema = z.object({
   lessonId: z.string().uuid('lesson id must be a UUID'),
 });
 
+export const setLessonPreviewBodySchema = z.object({
+  isPreview: z.boolean(),
+});
+
 export const listOwnCoursesQuerySchema = z.object({
   status: z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']).optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -121,6 +126,7 @@ export const listPurchasedQuerySchema = z.object({
 
 export type CreateCourseBody = z.infer<typeof createCourseBodySchema>;
 export type PatchCourseBody = z.infer<typeof patchCourseBodySchema>;
+export type SetLessonPreviewBody = z.infer<typeof setLessonPreviewBodySchema>;
 export type CourseCurriculumBody = z.infer<typeof courseCurriculumSchema>;
 export type ListOwnCoursesQuery = z.infer<typeof listOwnCoursesQuerySchema>;
 export type DiscoverCoursesQuery = z.infer<typeof discoverCoursesQuerySchema>;

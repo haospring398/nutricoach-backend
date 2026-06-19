@@ -20,7 +20,7 @@
 npm install
 # → tạo .env đầy đủ (xem development-guide.md + DEPLOYMENT.md §4)
 npm run build
-npm run db:migrate          # tạo toàn bộ bảng (migrations 0000–0019)
+npm run db:migrate          # tạo toàn bộ bảng (migrations 0000–0020)
 npm run seed:foods          # ~2,100 food items (VN NIN)
 npm run seed:exercises      # ~40 exercises
 npm start
@@ -29,7 +29,7 @@ curl https://<host>/health  # { "status": "ok", ... }
 
 ## Lưu ý nhanh (đã đồng bộ vào DEPLOYMENT.md 2026-06-18)
 
-- **27 bảng**, migrations **0000–0019** (trước đây DEPLOYMENT.md ghi nhầm 24 bảng / 0000–0014).
+- **27 bảng**, migrations **0000–0020** (trước đây DEPLOYMENT.md ghi nhầm 24 bảng / 0000–0014).
 - Seed dùng **`npm run seed:foods`** + **`npm run seed:exercises`** riêng (không có `db:seed`).
 - Biến email đúng là **`EMAIL_FROM`** (không phải `RESEND_FROM_EMAIL`) — xem [env.ts](../src/config/env.ts).
 

@@ -16,7 +16,7 @@
 - **Enum:** API luôn trả **UPPERCASE** (xem [data-models.md](./data-models.md)).
 - **Idempotency:** `POST /payment/checkout` và `POST /pt/withdrawals` nhận header `Idempotency-Key` (Redis 24h TTL + DB unique làm safety net). First call → 201, replay → 200.
 
-**Tổng: 106 route handlers** (`router.METHOD(...)` đếm trực tiếp từ `src/routes/*`, chưa kể `GET /health`). `/admin` mang 32 handler thuộc nhiều module con. Phân theo mount:
+**Tổng: 107 route handlers** (`router.METHOD(...)` đếm trực tiếp từ `src/routes/*`, chưa kể `GET /health`). `/admin` mang 32 handler thuộc nhiều module con. Phân theo mount:
 
 ---
 
@@ -96,7 +96,7 @@
 | PATCH | `/workout/sessions/:id` | auth | Sửa buổi tập |
 | DELETE | `/workout/sessions/:id` | auth | Xóa buổi tập |
 
-## `/pt` — [pt.routes.ts](../src/routes/pt.routes.ts) (20)
+## `/pt` — [pt.routes.ts](../src/routes/pt.routes.ts) (21)
 
 | Method | Path | Auth | Mô tả |
 |---|---|---|---|
@@ -113,6 +113,7 @@
 | POST | `/pt/courses/:id/archive` | role:pt | Archive khóa |
 | POST | `/pt/courses/:id/thumbnail` | role:pt | Upload thumbnail (Cloudinary) |
 | POST | `/pt/courses/:id/lessons/:lessonId/video` | role:pt | Upload video lesson (Cloudinary MP4 100MB) |
+| PATCH | `/pt/courses/:id/lessons/:lessonId/preview` | role:pt | Bật/tắt cờ xem thử (is_preview) cho lesson |
 | GET | `/pt/students` | role:pt | Danh sách học viên |
 | GET | `/pt/students/:studentId` | role:pt + ptAccess | Chi tiết học viên |
 | PUT | `/pt/students/:studentId/meal-plan` | role:pt + ptAccess | Giao meal plan |
@@ -121,7 +122,7 @@
 | POST | `/pt/withdrawals` | role:pt + Idempotency-Key | Yêu cầu rút tiền |
 | GET | `/pt/withdrawals` | role:pt | Lịch sử rút tiền |
 
-> Lưu ý: đúng **20** `router.METHOD` (đã verify từ `pt.routes.ts`) — gồm cả nhánh `courses/:id/*` và `students/:studentId/*`.
+> Lưu ý: đúng **21** `router.METHOD` (đã verify từ `pt.routes.ts`) — gồm cả nhánh `courses/:id/*` và `students/:studentId/*`.
 
 ## `/content` — [content.routes.ts](../src/routes/content.routes.ts) (5)
 

@@ -16,6 +16,7 @@ import {
   patchCourseHandler,
   publishCourseHandler,
   replaceCurriculumHandler,
+  setLessonPreviewHandler,
   uploadCourseThumbnailHandler,
   uploadLessonVideoHandler,
 } from '../controllers/course.controller';
@@ -580,6 +581,68 @@ router.post(
   requireRole('pt'),
   uploadVideoSingle('video'),
   uploadLessonVideoHandler,
+);
+
+/**
+ * @openapi
+ * /pt/courses/{id}/lessons/{lessonId}/preview:
+ *   patch:
+ *     tags: [PT Courses]
+ *     summary: Toggle a lesson's public-preview flag (xem thử)
+ *     description: >
+ *       When isPreview is true, the lesson's cloudinaryVideoUrl is exposed in the
+ *       public course detail so non-buyers can preview it; false keeps it hidden
+ *       (paid). Not blocked by the curriculum enrollment lock — only changes
+ *       visibility, not curriculum structure.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *       - in: path
+ *         name: lessonId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [isPreview]
+ *             properties:
+ *               isPreview:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: "Preview flag updated — returns { lessonId, isPreview }"
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       400:
+ *         description: Validation error (isPreview missing or not a boolean)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: COURSE_NOT_FOUND / LESSON_NOT_FOUND
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.patch(
+  '/courses/:id/lessons/:lessonId/preview',
+  requireRole('pt'),
+  setLessonPreviewHandler,
 );
 
 // Phase 3: Student management.

@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   index,
   integer,
   pgEnum,
@@ -110,6 +111,10 @@ export const courseLessons = pgTable(
     }),
     durationMin: integer('duration_min').notNull().default(0),
     displayOrder: integer('display_order').notNull(),
+    // When true, this lesson's video is exposed in the PUBLIC course detail
+    // (xem thử) — paid lessons (false) keep cloudinaryVideoUrl hidden. Default
+    // false so existing lessons remain paid. youtubeVideoId gating is separate.
+    isPreview: boolean('is_preview').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

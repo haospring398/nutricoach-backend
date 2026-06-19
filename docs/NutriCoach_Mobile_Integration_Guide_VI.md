@@ -1345,11 +1345,14 @@ Idempotency-Key: 550e8400-e29b-41d4-a716-446655440000
 
 ### Video Bài Học Khóa Học PT
 
-Response của `GET /pt/courses/:id` (view của chủ sở hữu PT) — mỗi `lesson` giờ có thêm trường **`cloudinaryVideoUrl`** (string, nullable) bên cạnh `youtubeVideoId`.
+Response của `GET /pt/courses/:id` (view của chủ sở hữu PT) — mỗi `lesson` có trường **`cloudinaryVideoUrl`** (string, nullable) bên cạnh `youtubeVideoId`, và **`isPreview`** (boolean) cho biết bài học có cho xem thử công khai không.
 
 - Khi render video bài học: nếu **`cloudinaryVideoUrl`** có giá trị → dùng trình phát video native (URL MP4 trực tiếp); nếu **`youtubeVideoId`** có giá trị → dùng YouTube embed.
 - Nếu cả hai cùng có giá trị → **ưu tiên `cloudinaryVideoUrl`**.
-- `cloudinaryVideoUrl` chỉ xuất hiện trong view của PT chủ sở hữu; catalog công khai (`GET /content/pt-courses/:id`) **không** trả trường này.
+- **`isPreview`** luôn có trong mọi view (PT chủ sở hữu lẫn catalog công khai) → dùng để render icon mở khóa/khóa.
+- `cloudinaryVideoUrl` trong catalog công khai (`GET /content/pt-courses/:id`) chỉ trả về cho bài học **`isPreview: true`** (xem thử); bài học trả phí (`isPreview: false`) **không** trả trường này để không lộ link CDN. View của PT chủ sở hữu luôn trả đầy đủ.
+- PT bật/tắt cờ xem thử qua `PATCH /pt/courses/:id/lessons/:lessonId/preview` với body `{ isPreview }` — dùng được cả khi khóa đã có học viên.
+- ⚠️ `youtubeVideoId` hiện vẫn công khai cho mọi bài học (kể cả bài trả phí) — đây là hạng mục hardening riêng, chưa nằm trong tính năng xem thử này.
 
 ### Validation `strict()`
 

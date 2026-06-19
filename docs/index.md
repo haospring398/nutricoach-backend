@@ -12,7 +12,7 @@
 
 - **Tech Stack:** Node ≥18 · Express 4 · PostgreSQL/Drizzle 0.29 · Redis/ioredis · Zod · JWT(HS256)+bcrypt · PayOS · Cloudinary · Resend · Swagger
 - **Entry Point:** [src/server.ts](../src/server.ts) → [src/app.ts](../src/app.ts)
-- **Quy mô:** 95 file TS (~20k LOC) · 106 endpoint / 12 module · 27 bảng / 19 migration
+- **Quy mô:** 95 file TS (~20k LOC) · 107 endpoint / 12 module · 27 bảng / 20 migration
 - **AI:** microservice riêng (Gemini 2.5 Flash, LangGraph/ESM, port 4000) — gọi qua HTTP
 - **Trạng thái:** PT marketplace feature-complete (Phase 1–4); admin user-mgmt (0017) + PT media upload (0018) + course-media public_id & upload hardening (0019)
 
@@ -40,7 +40,7 @@
 ```bash
 npm install
 cp .env.example .env        # điền giá trị (xem development-guide.md)
-npm run db:migrate          # tạo bảng (0000–0019)
+npm run db:migrate          # tạo bảng (0000–0020)
 npm run seed:foods && npm run seed:exercises
 npm run dev                 # http://localhost:3000
 curl http://localhost:3000/health

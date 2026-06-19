@@ -1,7 +1,7 @@
 # Data Models — NutriCoach Backend
 
 > Tài liệu schema cơ sở dữ liệu. Sinh tự động bởi workflow `bmad-document-project` (exhaustive scan, 2026-06-18).
-> Nguồn chuẩn: các file `src/models/*.model.ts` (Drizzle table definitions) + migrations `src/db/migrations/0000–0019`.
+> Nguồn chuẩn: các file `src/models/*.model.ts` (Drizzle table definitions) + migrations `src/db/migrations/0000–0020`.
 > Tham khảo chi tiết bổ sung: [CODEBASE_CONTEXT.md §2 & §4](./CODEBASE_CONTEXT.md).
 
 ## Tổng quan
@@ -128,7 +128,7 @@ CHECK (migration): price 50k–50M, duration 1–365, `char_length(trim(title)) 
 `id` · `courseId` → courses (cascade) · `title` · `displayOrder` · timestamps. **UNIQUE (course_id, display_order)**.
 
 ### `course_lessons`
-`id` · `moduleId` → course_modules (cascade) · `title` · `youtubeVideoId?` varchar(32) · `cloudinaryVideoUrl?` varchar(512) (migration 0018) · `cloudinaryVideoPublicId?` varchar(512) (**migration 0019** — public_id của video để compensating-delete/replace cleanup) · `durationMin` int default 0 · `displayOrder` · timestamps. **UNIQUE (module_id, display_order)**.
+`id` · `moduleId` → course_modules (cascade) · `title` · `youtubeVideoId?` varchar(32) · `cloudinaryVideoUrl?` varchar(512) (migration 0018) · `cloudinaryVideoPublicId?` varchar(512) (**migration 0019** — public_id của video để compensating-delete/replace cleanup) · `isPreview` boolean default false (**migration 0020** — true: lesson cho xem thử công khai, public catalog lộ `cloudinaryVideoUrl`; false: paid) · `durationMin` int default 0 · `displayOrder` · timestamps. **UNIQUE (module_id, display_order)**.
 > Lesson publishable nếu có **một trong hai**: `youtubeVideoId` hoặc `cloudinaryVideoUrl`.
 
 ### `enrollments` (webhook payment ghi vào)
@@ -200,7 +200,7 @@ Row id trở thành `referenceId` server-verified cho quest AI_SCAN.
 
 ## Migrations
 
-19 file SQL `0000_*` → `0019_*` trong [src/db/migrations/](../src/db/migrations/) + `meta/` (drizzle journal + snapshots).
+20 file SQL `0000_*` → `0020_*` trong [src/db/migrations/](../src/db/migrations/) + `meta/` (drizzle journal + snapshots).
 
 | Migration | Nội dung |
 |---|---|
@@ -215,5 +215,6 @@ Row id trở thành `referenceId` server-verified cho quest AI_SCAN.
 | 0017 | admin user management (ban columns) |
 | 0018 | lesson cloudinary video (course_lessons.cloudinary_video_url) |
 | 0019 | course media public_id (courses.thumbnail_public_id + course_lessons.cloudinary_video_public_id) — replace cleanup + compensating delete |
+| 0020 | course_lessons.is_preview (bool default false) — cờ xem thử công khai per-lesson |
 
 > ⚠️ **Quy tắc migration:** migration thường → `npm run db:generate` + `npm run db:migrate`. Migration viết tay (0010+) áp bằng `psql -f` trực tiếp (drizzle journal hash bị corrupt với file viết tay). Không dùng `db:push` trên production. Xem [project-context.md](../_bmad-output/project-context.md).

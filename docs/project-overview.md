@@ -25,7 +25,7 @@
 ## Executive summary
 
 - **Loại:** backend REST API monolith.
-- **Quy mô:** 95 file TS (~20k LOC), 106 route handlers / 12 module, 27 bảng / 19 migration.
+- **Quy mô:** 95 file TS (~20k LOC), 107 route handlers / 12 module, 27 bảng / 20 migration.
 - **Trạng thái:** PT marketplace feature-complete (Phase 1–4). Mới nhất: PT media upload Cloudinary (0018) + course-media public_id cho replace/compensating-delete (0019) + upload hardening (magic-byte anti-spoof, video disk/timeout).
 - **AI:** tách riêng microservice (Gemini 2.5 Flash, LangGraph/ESM, port 4000), backend gọi qua HTTP.
 
@@ -47,7 +47,7 @@ Chi tiết: [architecture.md §2](./architecture.md).
 | [index.md](./index.md) | ⭐ Điểm vào chính (master index) |
 | [architecture.md](./architecture.md) | Kiến trúc, conventions, security, integration |
 | [data-models.md](./data-models.md) | Schema DB 27 bảng |
-| [api-contracts.md](./api-contracts.md) | Catalog 106 endpoint |
+| [api-contracts.md](./api-contracts.md) | Catalog 107 endpoint |
 | [source-tree-analysis.md](./source-tree-analysis.md) | Cây thư mục chú thích |
 | [development-guide.md](./development-guide.md) | Setup dev, scripts, quy trình thêm module |
 | [deployment-guide.md](./deployment-guide.md) | Deploy (Neon) |

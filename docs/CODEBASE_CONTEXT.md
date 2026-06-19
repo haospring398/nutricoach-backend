@@ -175,7 +175,7 @@ src/
 │
 ├── db/
 │   ├── migrate.ts          Migration runner (`npm run db:migrate`)
-│   ├── migrations/         0000–0019 .sql files + meta/ (drizzle journal+snapshots)
+│   ├── migrations/         0000–0020 .sql files + meta/ (drizzle journal+snapshots)
 │   └── seeds/
 │       ├── foods.seed.ts       CSV → food_items  (`npm run seed:foods`)
 │       └── exercises.seed.ts   JSON → exercises  (`npm run seed:exercises`)
@@ -228,7 +228,7 @@ need `./dist/routes/*.js` added.
 ### `course.model.ts` (Phase 2)
 - **courses** — `id`, `ptId` → users (restrict), `title` (varchar 200), `description` (text), `thumbnailUrl?` (varchar 512), `thumbnailPublicId?` (varchar 512 — Cloudinary public_id, **migration 0019**; lets replace/cleanup destroy the old asset by id and compensate-delete an orphan if the DB write fails), `priceVnd` (int), `durationDays` (int), `tags` (text[]), `status` (course_status, default `draft`), `publishedAt?`, `archivedAt?`, `totalLessons` (int, **service-maintained denormalized count**), `createdAt`, `updatedAt`. Indexes on `pt_id`, `status`, + trigram GIN on `title` (migration). CHECKs: price 50k–50M, duration 1–365, `char_length(trim(title)) ≥ 3`.
 - **course_modules** — `id`, `courseId` → courses (cascade), `title` (varchar 200), `displayOrder` (int), timestamps. **UNIQUE (course_id, display_order)**. CHECK `display_order ≥ 0`.
-- **course_lessons** — `id`, `moduleId` → course_modules (cascade), `title` (varchar 200), `youtubeVideoId?` (varchar 32 — nullable until publish), `cloudinaryVideoUrl?` (varchar 512 — Cloudinary-hosted video, alternative to `youtubeVideoId`; added in 0018), `cloudinaryVideoPublicId?` (varchar 512 — Cloudinary public_id of that video, **migration 0019**; used for replace cleanup + compensating delete), `durationMin` (int default 0), `displayOrder` (int), timestamps. **UNIQUE (module_id, display_order)**. CHECKs: order ≥ 0, duration 0–600. A lesson is publishable if it has **either** `youtubeVideoId` or `cloudinaryVideoUrl`.
+- **course_lessons** — `id`, `moduleId` → course_modules (cascade), `title` (varchar 200), `youtubeVideoId?` (varchar 32 — nullable until publish), `cloudinaryVideoUrl?` (varchar 512 — Cloudinary-hosted video, alternative to `youtubeVideoId`; added in 0018), `cloudinaryVideoPublicId?` (varchar 512 — Cloudinary public_id of that video, **migration 0019**; used for replace cleanup + compensating delete), `isPreview` (boolean, default false, **migration 0020** — when true the public course detail exposes this lesson's `cloudinaryVideoUrl` for xem thử; false = paid), `durationMin` (int default 0), `displayOrder` (int), timestamps. **UNIQUE (module_id, display_order)**. CHECKs: order ≥ 0, duration 0–600. A lesson is publishable if it has **either** `youtubeVideoId` or `cloudinaryVideoUrl`.
 - **enrollments** — `id`, `userId` → users (cascade), `courseId` → courses (restrict), `ptId` → users (restrict, denormalized from course), `transactionId` → transactions (restrict), `status` (enrollment_status, default `active`), `enrolledAt`, `completedAt?`, timestamps. **UNIQUE (transaction_id)** (webhook idempotency). Partial unique **(user_id, course_id) WHERE status != 'refunded'** (no double-enroll). Indexes on user/pt/course. *Owned by Phase 3 conceptually; ships in Phase 2 because the payment webhook writes it.*
 
 ### `pt-assignment.model.ts` (Phase 3)
@@ -269,17 +269,17 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | `/dashboard` | dashboard | 1 | user |
 | `/payment` | payment | 5 | checkout, webhook/payos, transactions, subscription, courses |
 | `/workout` | workout | 7 | exercises (list/detail), sessions (POST/GET/GET:id/PATCH/DELETE) |
-| `/pt` | pt | 20 | verification (POST), verification/status, me (GET/PATCH), courses (POST/GET/GET:id/PATCH, :id/curriculum PUT, :id/publish, :id/archive, **:id/thumbnail POST, :id/lessons/:lessonId/video POST**), students (GET, GET:studentId, :studentId/meal-plan PUT, :studentId/exercises POST), earnings (GET), withdrawals (POST/GET) |
+| `/pt` | pt | 21 | verification (POST), verification/status, me (GET/PATCH), courses (POST/GET/GET:id/PATCH, :id/curriculum PUT, :id/publish, :id/archive, **:id/thumbnail POST, :id/lessons/:lessonId/video POST, :id/lessons/:lessonId/preview PATCH**), students (GET, GET:studentId, :studentId/meal-plan PUT, :studentId/exercises POST), earnings (GET), withdrawals (POST/GET) |
 | `/admin` | admin | 32 | pt-verifications (list/detail/approve/reject), withdrawals (list/approve/reject), **articles (upload-image/list/create/:id GET/:id PATCH/:id publish/:id archive + categories POST)**, **quests (list/create/:id PATCH/leaderboard + redemptions list/:id fulfill/:id reject + rewards list/create/:id PATCH/:id DELETE)**, **users (list/:id GET/:id ban/:id unban/:id role PATCH + analytics/users)** |
 | `/content` | content | 5 | discover/pt-courses, pt-courses/:id, **articles (list), categories (list), articles/:slug** |
 | `/quests` | quest | 7 | daily, trigger, diary-lock, points, rewards, redeem, redemptions |
 | `/scan` | scan | 1 | scan (AI food scan) |
 
-**106 endpoints total** (+ `/health`). The `/admin` mount physically carries 32 handlers spanning
+**107 endpoints total** (+ `/health`). The `/admin` mount physically carries 32 handlers spanning
 four logical modules: PT review (7), Content/articles write (8 — incl. `upload-image` + the `:id` draft preview), Quests admin (11 — incl. 3 redemption + 4 rewards CRUD), User management (6 — incl. analytics). By logical
 module the split is **Auth 10 · Users 9 · Nutrition 6 · Foods 3 · Dashboard 1 · Payment 5 ·
-Workout 7 · PT 20 · PT-review/admin 7 · Admin user-mgmt 6 · Content 13 (2 PT-course + 11 articles) · Quests 18
-(7 user + 11 admin) · Scan 1** = 106. (PT grew 18 → 20 with course thumbnail + lesson video upload, migration 0018; Quests admin grew 7 → 11 with rewards CRUD; Admin user management is a new group of 6, migration 0017. Content articles = 3 read + 8 write incl. `POST /admin/articles/upload-image`.)
+Workout 7 · PT 21 · PT-review/admin 7 · Admin user-mgmt 6 · Content 13 (2 PT-course + 11 articles) · Quests 18
+(7 user + 11 admin) · Scan 1** = 107. (PT grew 18 → 20 with course thumbnail + lesson video upload, migration 0018; then 20 → 21 with the lesson preview toggle, migration 0020; Quests admin grew 7 → 11 with rewards CRUD; Admin user management is a new group of 6, migration 0017. Content articles = 3 read + 8 write incl. `POST /admin/articles/upload-image`.)
 
 ### Auth requirements per mount
 - `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
@@ -419,7 +419,7 @@ Admin (PT-verification review + withdrawal review + article/category write + que
 **Content (PT-course discovery + articles/categories — migration 0013)**,
 **Quests (gamification: daily quests, points, leaderboard, **reward redemption** — migrations 0014 + 0016)**,
 **Scan (AI food scan: Gemini microservice → dataset match → VN answer; migration 0015)**.
-Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 106 endpoints annotated).
+Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 107 endpoints annotated).
 
 **Planned / not built:**
 - **Scan storage / replay** — `POST /scan` ships (migration 0015) but stores only the image

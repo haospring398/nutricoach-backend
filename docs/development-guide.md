@@ -60,7 +60,7 @@ docker compose up -d      # khởi động postgres + redis local (docker-compos
 ```bash
 npm install
 # điền .env
-npm run db:migrate        # tạo toàn bộ bảng (0000–0019)
+npm run db:migrate        # tạo toàn bộ bảng (0000–0020)
 npm run seed:foods        # cần cho /foods
 npm run seed:exercises    # cần cho /workout
 npm run dev               # http://localhost:3000

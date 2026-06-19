@@ -31,7 +31,7 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (20), Admin/PT-review (7), Admin user-mgmt (6), Content (13 — 2 PT-course + 11 articles), Quests (18 — 7 user + 11 admin), Scan (1)** — **106 endpoints total** (+ `GET /health`)
+- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (21), Admin/PT-review (7), Admin user-mgmt (6), Content (13 — 2 PT-course + 11 articles), Quests (18 — 7 user + 11 admin), Scan (1)** — **107 endpoints total** (+ `GET /health`)
 
 > **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 32 handlers spanning four logical modules (PT review 7 + article read/write 8 incl. `upload-image` + quest admin 11 incl. 3 redemption + 4 rewards CRUD + user management 6 incl. analytics); the table above groups by logical module. PT is **20** (P1 4, P2 courses 9 incl. thumbnail + lesson video upload, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
 
@@ -1348,7 +1348,7 @@ Create a course (status defaults to `DRAFT`). Curriculum (modules + lessons) is 
   - `durationDays`: integer 1–365
   - `tags` (optional): array of ≤10 strings (each ≤40 chars)
   - `modules`: array 1–20 items — each `{ title (3–200), displayOrder (0..N-1), lessons }`
-    - `lessons`: array 1–50 items — each `{ title (3–200), youtubeVideoId? (11-char YT id, nullable until publish), durationMin (0–600), displayOrder (0..N-1) }`
+    - `lessons`: array 1–50 items — each `{ title (3–200), youtubeVideoId? (11-char YT id, nullable until publish), durationMin (0–600), displayOrder (0..N-1), isPreview? (boolean, default false — public xem thử flag) }`
 - Response: `201 Created` — course summary
   ```json
   { "success": true, "data": { "id": "uuid", "title": "...", "status": "DRAFT", "priceVnd": 1490000, "durationDays": 30, "tags": ["WEIGHT_LOSS"], "totalLessons": 12, "thumbnailUrl": null, "publishedAt": null, "createdAt": "..." } }
@@ -1383,13 +1383,13 @@ Own course detail with full curriculum. Non-owner gets 404 (don't leak).
       "totalLessons": 12, "publishedAt": null, "archivedAt": null,
       "modules": [
         { "id": "uuid", "title": "Tuần 1", "displayOrder": 0,
-          "lessons": [ { "id": "uuid", "title": "Day 1", "youtubeVideoId": "abc123", "cloudinaryVideoUrl": null, "durationMin": 25, "displayOrder": 0 } ] }
+          "lessons": [ { "id": "uuid", "title": "Day 1", "youtubeVideoId": "abc123", "cloudinaryVideoUrl": null, "isPreview": false, "durationMin": 25, "displayOrder": 0 } ] }
       ],
       "createdAt": "...", "updatedAt": "..."
     }
   }
   ```
-  Each lesson carries **`cloudinaryVideoUrl`** (nullable) in the owner view — the URL of a video uploaded via `POST /pt/courses/:id/lessons/:lessonId/video`. It is **owner-only**: the public catalog (`GET /content/pt-courses/:id`) omits it so the paid CDN link never leaks.
+  Each lesson carries **`isPreview`** (boolean) and **`cloudinaryVideoUrl`** (nullable) — the latter is the URL of a video uploaded via `POST /pt/courses/:id/lessons/:lessonId/video`. The owner view always includes `cloudinaryVideoUrl`. In the public catalog (`GET /content/pt-courses/:id`) it is exposed **only for lessons where `isPreview` is true** (xem thử); paid lessons (`isPreview` false) omit it so the CDN link never leaks. `isPreview` itself is always present so the client can render the unlock/lock affordance. (Note: `youtubeVideoId` is currently public for every lesson — a separate hardening task, see deferred-work.)
 - Errors: `400 VALIDATION_ERROR`, `403 FORBIDDEN`, `404 COURSE_NOT_FOUND`, `500 INTERNAL_ERROR`
 
 ---
@@ -1477,6 +1477,28 @@ Upload a lesson video to Cloudinary and persist it on `course_lessons.cloudinary
   - `403 FORBIDDEN` (not a PT)
   - `404 COURSE_NOT_FOUND` / `LESSON_NOT_FOUND`
   - `500 UPLOAD_FAILED` — Cloudinary upload failed, or the upload exceeded the server-side 120 s Cloudinary timeout
+
+---
+
+### PATCH /api/v1/pt/courses/:id/lessons/:lessonId/preview
+
+Toggle a lesson's public-preview flag (`course_lessons.is_preview`). When `true`, the lesson's `cloudinaryVideoUrl` is exposed in the public course detail (`GET /content/pt-courses/:id`) so non-buyers can xem thử; `false` keeps it hidden (paid). The lesson must belong to the course (`lesson → module → course`) and the course must be owned by the caller. **Not blocked by the curriculum enrollment lock** — it only changes visibility, not curriculum structure, so it works even after the course has enrollments.
+
+> Note: `PUT /pt/courses/:id/curriculum` replaces all lessons, so it resets `isPreview` to whatever the curriculum body specifies (default `false`). Curriculum replace is itself blocked once enrollments exist, so in practice this toggle is the post-publish path and the two do not conflict.
+
+- Auth: required (PT role)
+- Request: `application/json`
+  ```json
+  { "isPreview": true }
+  ```
+- Response: `200 OK`
+  ```json
+  { "success": true, "data": { "lessonId": "uuid", "isPreview": true } }
+  ```
+- Errors:
+  - `400 VALIDATION_ERROR` (`isPreview` missing or not a boolean)
+  - `403 FORBIDDEN` (not a PT)
+  - `404 COURSE_NOT_FOUND` / `LESSON_NOT_FOUND`
 
 ---
 

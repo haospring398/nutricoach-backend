@@ -12,7 +12,7 @@
 
 - **Tech Stack:** Node ≥18 · Express 4 · PostgreSQL/Drizzle 0.29 · Redis/ioredis · Zod · JWT(HS256)+bcrypt · PayOS · Cloudinary · Resend · Swagger
 - **Entry Point:** [src/server.ts](../src/server.ts) → [src/app.ts](../src/app.ts)
-- **Quy mô:** 96 file TS (~20k LOC) · 107 endpoint / 12 module · 27 bảng / 21 migration (0000–0020)
+- **Quy mô:** 96 file TS (~20k LOC) · 109 endpoint / 12 module · 27 bảng / 21 migration (0000–0020)
 - **AI:** microservice riêng (Gemini 2.5 Flash, LangGraph/ESM, port 4000) — gọi qua HTTP
 - **Trạng thái:** PT marketplace feature-complete (Phase 1–4); admin user-mgmt (0017) + PT media upload (0018) + course-media public_id & upload hardening (0019)
 

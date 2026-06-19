@@ -16,7 +16,7 @@
 - **Enum:** API luôn trả **UPPERCASE** (xem [data-models.md](./data-models.md)).
 - **Idempotency:** `POST /payment/checkout` và `POST /pt/withdrawals` nhận header `Idempotency-Key` (Redis 24h TTL + DB unique làm safety net). First call → 201, replay → 200.
 
-**Tổng: 107 route handlers** (`router.METHOD(...)` đếm trực tiếp từ `src/routes/*`, chưa kể `GET /health`). `/admin` mang 32 handler thuộc nhiều module con. Phân theo mount:
+**Tổng: 109 route handlers** (`router.METHOD(...)` đếm trực tiếp từ `src/routes/*`, chưa kể `GET /health`). `/admin` mang 33 handler thuộc nhiều module con. Phân theo mount:
 
 ---
 
@@ -96,7 +96,7 @@
 | PATCH | `/workout/sessions/:id` | auth | Sửa buổi tập |
 | DELETE | `/workout/sessions/:id` | auth | Xóa buổi tập |
 
-## `/pt` — [pt.routes.ts](../src/routes/pt.routes.ts) (21)
+## `/pt` — [pt.routes.ts](../src/routes/pt.routes.ts) (22)
 
 | Method | Path | Auth | Mô tả |
 |---|---|---|---|
@@ -111,6 +111,7 @@
 | PUT | `/pt/courses/:id/curriculum` | role:pt | Thay toàn bộ modules/lessons |
 | POST | `/pt/courses/:id/publish` | role:pt | Publish (validate curriculum đủ) |
 | POST | `/pt/courses/:id/archive` | role:pt | Archive khóa |
+| POST | `/pt/courses/:id/restore` | role:pt | Khôi phục khóa đã thu hồi (archived → draft) |
 | POST | `/pt/courses/:id/thumbnail` | role:pt | Upload thumbnail (Cloudinary) |
 | POST | `/pt/courses/:id/lessons/:lessonId/video` | role:pt | Upload video lesson (Cloudinary MP4 100MB) |
 | PATCH | `/pt/courses/:id/lessons/:lessonId/preview` | role:pt | Bật/tắt cờ xem thử (is_preview) cho lesson |
@@ -122,7 +123,7 @@
 | POST | `/pt/withdrawals` | role:pt + Idempotency-Key | Yêu cầu rút tiền |
 | GET | `/pt/withdrawals` | role:pt | Lịch sử rút tiền |
 
-> Lưu ý: đúng **21** `router.METHOD` (đã verify từ `pt.routes.ts`) — gồm cả nhánh `courses/:id/*` và `students/:studentId/*`.
+> Lưu ý: đúng **22** `router.METHOD` (đã verify từ `pt.routes.ts`) — gồm cả nhánh `courses/:id/*` và `students/:studentId/*`.
 
 ## `/content` — [content.routes.ts](../src/routes/content.routes.ts) (5)
 
@@ -152,13 +153,13 @@
 |---|---|---|---|
 | POST | `/scan` | auth | AI food scan (ảnh → Gemini → match catalog) |
 
-## `/admin` — [admin.routes.ts](../src/routes/admin.routes.ts) (32 — role:admin router-wide)
+## `/admin` — [admin.routes.ts](../src/routes/admin.routes.ts) (33 — role:admin router-wide)
 
 **PT review (7):**
 `GET /admin/pt-verifications` · `GET /admin/pt-verifications/:id` · `POST .../:id/approve` · `POST .../:id/reject` · `GET /admin/withdrawals` · `POST /admin/withdrawals/:id/approve` · `POST .../:id/reject`
 
-**Articles / content write (8):**
-`POST /admin/articles/upload-image` · `GET /admin/articles` · `POST /admin/articles` · `GET /admin/articles/:id` · `PATCH /admin/articles/:id` · `POST .../:id/publish` · `POST .../:id/archive` · `POST /admin/categories`
+**Articles / content write (9):**
+`POST /admin/articles/upload-image` · `GET /admin/articles` · `POST /admin/articles` · `GET /admin/articles/:id` · `PATCH /admin/articles/:id` · `POST .../:id/publish` · `POST .../:id/archive` · `POST .../:id/restore` · `POST /admin/categories`
 
 **Quests admin (11):**
 `GET /admin/quests` · `POST /admin/quests` · `PATCH /admin/quests/:id` · `GET /admin/quests/leaderboard` · `GET /admin/quests/redemptions` · `PATCH /admin/quests/redemptions/:id/fulfill` · `PATCH .../:id/reject` · `GET /admin/quests/rewards` · `POST /admin/quests/rewards` · `PATCH /admin/quests/rewards/:id` · `DELETE /admin/quests/rewards/:id`

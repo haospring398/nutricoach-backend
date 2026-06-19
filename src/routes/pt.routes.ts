@@ -16,6 +16,7 @@ import {
   patchCourseHandler,
   publishCourseHandler,
   replaceCurriculumHandler,
+  restoreCourseHandler,
   setLessonPreviewHandler,
   uploadCourseThumbnailHandler,
   uploadLessonVideoHandler,
@@ -471,6 +472,48 @@ router.post(
   '/courses/:id/archive',
   requireRole('pt'),
   archiveCourseHandler,
+);
+
+/**
+ * @openapi
+ * /pt/courses/{id}/restore:
+ *   post:
+ *     tags: [PT Courses]
+ *     summary: Restore an archived course (ARCHIVED to DRAFT)
+ *     description: Returns the course to a clean draft (publishedAt and archivedAt cleared) so it can be edited and re-published through the normal publish flow. Only an archived course can be restored.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Course restored to draft
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: Course not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Invalid status transition (INVALID_COURSE_STATUS_TRANSITION) — only an archived course can be restored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post(
+  '/courses/:id/restore',
+  requireRole('pt'),
+  restoreCourseHandler,
 );
 
 /**

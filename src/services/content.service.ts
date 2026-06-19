@@ -489,6 +489,40 @@ export const archiveArticle = async (
   return mapAdminView(updated!);
 };
 
+// ── 7b. restoreArticle ────────────────────────────────────────
+// Mirror of archiveArticle with inverted guard: only an archived article can
+// be restored, returning it to a clean draft so the existing publish flow
+// re-validates the body before it goes live again.
+export const restoreArticle = async (
+  articleId: string,
+): Promise<ArticleAdminView> => {
+  const [a] = await db
+    .select({ status: articles.status })
+    .from(articles)
+    .where(eq(articles.id, articleId))
+    .limit(1);
+
+  if (!a) {
+    throw new ContentError(404, 'ARTICLE_NOT_FOUND', 'Article not found');
+  }
+  if (a.status !== 'archived') {
+    throw new ContentError(
+      409,
+      'INVALID_ARTICLE_STATUS_TRANSITION',
+      'Only an archived article can be restored',
+    );
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(articles)
+    .set({ status: 'draft', archivedAt: null, publishedAt: null, updatedAt: now })
+    .where(eq(articles.id, articleId))
+    .returning();
+
+  return mapAdminView(updated!);
+};
+
 // ── 8. adminListArticles ──────────────────────────────────────
 export const adminListArticles = async (
   query: AdminListArticlesQuery,

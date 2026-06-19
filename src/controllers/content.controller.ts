@@ -11,6 +11,7 @@ import {
   listCategories,
   listPublishedArticles,
   publishArticle,
+  restoreArticle,
   updateArticle,
 } from '../services/content.service';
 import {
@@ -205,6 +206,19 @@ export const archiveArticleHandler = async (
   try {
     const { id } = articleIdParamSchema.parse(req.params);
     const data = await archiveArticle(id);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const restoreArticleHandler = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const { id } = articleIdParamSchema.parse(req.params);
+    const data = await restoreArticle(id);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

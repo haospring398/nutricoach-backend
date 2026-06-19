@@ -13,6 +13,7 @@ import {
   patchCourse,
   publishCourse,
   replaceCurriculum,
+  restoreCourse,
   setLessonPreview,
   uploadCourseThumbnail,
   uploadLessonVideo,
@@ -194,6 +195,21 @@ export const archiveCourseHandler = async (
     if (!ptId) return;
     const { id } = courseIdParamSchema.parse(req.params);
     const data = await archiveCourse(ptId, id);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const restoreCourseHandler = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const ptId = requireUser(req, res);
+    if (!ptId) return;
+    const { id } = courseIdParamSchema.parse(req.params);
+    const data = await restoreCourse(ptId, id);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

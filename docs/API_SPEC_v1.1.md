@@ -1438,13 +1438,13 @@ Chi tiết tiến độ: weight history, workout sessions, nutrition adherence, 
 >
 > **There is no admin approval step in v1.** A PT **self-publishes**: `DRAFT → PUBLISHED` directly via `POST /pt/courses/:id/publish`. There is no `PENDING_REVIEW` state and `course_status` has only `draft | published | archived`. Publish validation is purely structural (≥1 module, ≥1 lesson, and **every lesson must have a non-null `youtubeVideoId`** or it returns `422 CURRICULUM_INCOMPLETE` with a `details` array of offending lessons). The admin course-moderation queue (`GET /admin/courses?status=PENDING_REVIEW`, §15.8–15.9) is **deferred to v1.1** and not built.
 >
-> Actual publish transitions: `draft → published` (publish), `draft|published → archived` (archive). Any other transition returns `409 INVALID_COURSE_STATUS_TRANSITION`. Once a course has non-refunded enrollments, `priceVnd`/`durationDays` are locked and curriculum replacement is rejected (`409 COURSE_LOCKED_BY_ENROLLMENTS`).
+> Actual publish transitions: `draft → published` (publish), `draft|published → archived` (archive), `archived → draft` (restore, via `POST /pt/courses/:id/restore` — clears `publishedAt`/`archivedAt` so the next publish re-validates the curriculum). Any other transition returns `409 INVALID_COURSE_STATUS_TRANSITION`. Once a course has non-refunded enrollments, `priceVnd`/`durationDays` are locked and curriculum replacement is rejected (`409 COURSE_LOCKED_BY_ENROLLMENTS`).
 
 ### 10.10. `GET /api/v1/pt/courses` · `PATCH /api/v1/pt/courses/:id` · `POST /api/v1/pt/courses/:id/publish`
 
 CRUD chuẩn.
 
-> ⚠️ **v1 NOTE:** The shipped course surface is broader than this line implies: `GET /pt/courses`, `GET /pt/courses/:id`, `PATCH /pt/courses/:id`, `PUT /pt/courses/:id/curriculum`, `POST /pt/courses/:id/publish`, `POST /pt/courses/:id/archive`. See `docs/API_CURRENT.md` for full request/response shapes.
+> ⚠️ **v1 NOTE:** The shipped course surface is broader than this line implies: `GET /pt/courses`, `GET /pt/courses/:id`, `PATCH /pt/courses/:id`, `PUT /pt/courses/:id/curriculum`, `POST /pt/courses/:id/publish`, `POST /pt/courses/:id/archive`, `POST /pt/courses/:id/restore`. See `docs/API_CURRENT.md` for full request/response shapes.
 
 ### 10.11. `GET /api/v1/pt/earnings`
 

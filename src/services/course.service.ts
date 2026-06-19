@@ -802,6 +802,41 @@ export const archiveCourse = async (
   return mapCourseSummary(updated!);
 };
 
+// ── 7b. restoreCourse ─────────────────────────────────────────
+// Mirror of archiveCourse with inverted guard: only an archived course can be
+// restored, returning it to a clean draft so the existing publish flow
+// re-validates the curriculum before it goes live again.
+export const restoreCourse = async (
+  ptId: string,
+  courseId: string,
+): Promise<CourseSummary> => {
+  const [c] = await db
+    .select()
+    .from(courses)
+    .where(and(eq(courses.id, courseId), eq(courses.ptId, ptId)))
+    .limit(1);
+
+  if (!c) {
+    throw new CourseError(404, 'COURSE_NOT_FOUND', 'Course not found');
+  }
+  if (c.status !== 'archived') {
+    throw new CourseError(
+      409,
+      'INVALID_COURSE_STATUS_TRANSITION',
+      'Only an archived course can be restored',
+    );
+  }
+
+  const now = new Date();
+  const [updated] = await db
+    .update(courses)
+    .set({ status: 'draft', archivedAt: null, publishedAt: null, updatedAt: now })
+    .where(eq(courses.id, courseId))
+    .returning();
+
+  return mapCourseSummary(updated!);
+};
+
 // ── 8. discoverCourses ────────────────────────────────────────
 const buildPtExcerpt = (
   ptId: string,

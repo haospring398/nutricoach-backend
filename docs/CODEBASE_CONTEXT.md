@@ -275,11 +275,11 @@ All under `/api/v1`. Plus `GET /health` (no auth, no envelope) defined in `app.t
 | `/quests` | quest | 7 | daily, trigger, diary-lock, points, rewards, redeem, redemptions |
 | `/scan` | scan | 1 | scan (AI food scan) |
 
-**107 endpoints total** (+ `/health`). The `/admin` mount physically carries 32 handlers spanning
-four logical modules: PT review (7), Content/articles write (8 — incl. `upload-image` + the `:id` draft preview), Quests admin (11 — incl. 3 redemption + 4 rewards CRUD), User management (6 — incl. analytics). By logical
+**109 endpoints total** (+ `/health`). The `/admin` mount physically carries 33 handlers spanning
+four logical modules: PT review (7), Content/articles write (9 — incl. `upload-image` + the `:id` draft preview + `:id/restore`), Quests admin (11 — incl. 3 redemption + 4 rewards CRUD), User management (6 — incl. analytics). By logical
 module the split is **Auth 10 · Users 9 · Nutrition 6 · Foods 3 · Dashboard 1 · Payment 5 ·
-Workout 7 · PT 21 · PT-review/admin 7 · Admin user-mgmt 6 · Content 13 (2 PT-course + 11 articles) · Quests 18
-(7 user + 11 admin) · Scan 1** = 107. (PT grew 18 → 20 with course thumbnail + lesson video upload, migration 0018; then 20 → 21 with the lesson preview toggle, migration 0020; Quests admin grew 7 → 11 with rewards CRUD; Admin user management is a new group of 6, migration 0017. Content articles = 3 read + 8 write incl. `POST /admin/articles/upload-image`.)
+Workout 7 · PT 22 · PT-review/admin 7 · Admin user-mgmt 6 · Content 14 (2 PT-course + 12 articles) · Quests 18
+(7 user + 11 admin) · Scan 1** = 109. (PT grew 18 → 20 with course thumbnail + lesson video upload, migration 0018; then 20 → 21 with the lesson preview toggle, migration 0020; then 21 → 22 with the `archived → draft` course restore (no migration); Quests admin grew 7 → 11 with rewards CRUD; Admin user management is a new group of 6, migration 0017. Content articles = 3 read + 9 write incl. `POST /admin/articles/upload-image` + `POST /admin/articles/:id/restore`.)
 
 ### Auth requirements per mount
 - `/auth`: register / login / refresh / verify-email / forgot-password / reset-password are public; the rest require `authenticate`.
@@ -419,7 +419,7 @@ Admin (PT-verification review + withdrawal review + article/category write + que
 **Content (PT-course discovery + articles/categories — migration 0013)**,
 **Quests (gamification: daily quests, points, leaderboard, **reward redemption** — migrations 0014 + 0016)**,
 **Scan (AI food scan: Gemini microservice → dataset match → VN answer; migration 0015)**.
-Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 107 endpoints annotated).
+Cross-cutting: **Swagger/OpenAPI** at `/api-docs` (all 109 endpoints annotated).
 
 **Planned / not built:**
 - **Scan storage / replay** — `POST /scan` ships (migration 0015) but stores only the image

@@ -34,6 +34,7 @@ import {
   createCategoryHandler,
   getAdminArticleById,
   publishArticleHandler,
+  restoreArticleHandler,
   updateArticleHandler,
 } from '../controllers/content.controller';
 import {
@@ -680,6 +681,44 @@ router.post('/articles/:id/publish', publishArticleHandler);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/articles/:id/archive', archiveArticleHandler);
+
+/**
+ * @openapi
+ * /admin/articles/{id}/restore:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Restore an archived article (ARCHIVED to DRAFT)
+ *     description: Returns the article to a clean draft (publishedAt and archivedAt cleared) so it can be edited and re-published through the normal publish flow. Only an archived article can be restored.
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Article restored to draft
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       404:
+ *         description: Article not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       409:
+ *         description: Invalid status transition (INVALID_ARTICLE_STATUS_TRANSITION) — only an archived article can be restored
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.post('/articles/:id/restore', restoreArticleHandler);
 
 /**
  * @openapi

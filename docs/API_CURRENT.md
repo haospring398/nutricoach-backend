@@ -31,9 +31,9 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (21), Admin/PT-review (7), Admin user-mgmt (6), Content (13 — 2 PT-course + 11 articles), Quests (18 — 7 user + 11 admin), Scan (1)** — **107 endpoints total** (+ `GET /health`)
+- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (22), Admin/PT-review (7), Admin user-mgmt (6), Content (14 — 2 PT-course + 12 articles), Quests (18 — 7 user + 11 admin), Scan (1)** — **109 endpoints total** (+ `GET /health`)
 
-> **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 32 handlers spanning four logical modules (PT review 7 + article read/write 8 incl. `upload-image` + quest admin 11 incl. 3 redemption + 4 rewards CRUD + user management 6 incl. analytics); the table above groups by logical module. PT is **20** (P1 4, P2 courses 9 incl. thumbnail + lesson video upload, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
+> **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 33 handlers spanning four logical modules (PT review 7 + article read/write 9 incl. `upload-image` + `:id/restore` + quest admin 11 incl. 3 redemption + 4 rewards CRUD + user management 6 incl. analytics); the table above groups by logical module. PT is **22** (P1 4, P2 courses 11 incl. thumbnail + lesson video upload + archived→draft restore, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
 
 > **Content/articles endpoints** (migration 0013) are now documented per-endpoint in this file (Content section for the public reads, Admin section for the article/category writes), in addition to Swagger (`/api-docs`).
 

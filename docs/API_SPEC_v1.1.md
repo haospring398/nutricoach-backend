@@ -18,9 +18,9 @@ This section reconciles the spec (target architecture) with the **as-shipped v1 
 |---|---|
 | `auth` | ✅ Implemented — email/password, refresh, logout, logout-all, verify-email, resend-verification, forgot/reset-password. ❌ OAuth (`/auth/google`, `/auth/apple`) **not built**. |
 | `users` | ✅ Implemented — me (GET/PATCH/DELETE), onboarding, metrics, change-password, **+ `GET /me/pt-assignments`** (student feed of PT assignments). ❌ `POST /me/avatar` not built. |
-| `scan` | ❌ **Not built.** `openai` is installed but unused. |
+| `scan` | ✅ **Implemented** (migration 0015) — but **not** as §6 describes. v1: synchronous `POST /scan` only (no `/confirm`, `/history`, `/:scanId`); calls the **Gemini-based AI microservice** (`/infer`), **not** OpenAI GPT-4o; JSON `{ imageBase64, question? }`, **not** multipart/S3; persists the **image hash only**; returns a free-text answer + matched dataset rows, **not** S/M/L sizes or per-macro numbers. See `docs/API_CURRENT.md` → Scan. |
 | `foods` | ✅ Implemented — search, `:id`, categories (~2,100 VN NIN items). |
-| `nutrition` | ⚠️ Partial — food-logs CRUD + `summary/daily` only. ❌ AI meal-plan generation, weekly summary **not built**. |
+| `nutrition` | ⚠️ Partial — food-logs CRUD + `summary/daily` + **AI meal-plan generation** (`POST /meal-plans/generate` — shipped, but **synchronous & stateless**, diverges from §8.1; see `docs/API_CURRENT.md`). ❌ weekly summary, `GET /meal-plans/active` **not built**. |
 | `workout` | ⚠️ Partial — exercise library (40 seeded) + session CRUD (create/list/detail/update/delete). ❌ Live session flow (`/logs`, `/finish`), `/programs/me` **not built**. |
 | `pt` | ✅ **Fully implemented (Phases 1–4):** verification, profile, courses (CRUD + publish/archive), students (list/detail + meal-plan + exercise assignments), earnings, withdrawals. |
 | `payment` | ✅ Implemented — checkout (PRO + PT_COURSE), PayOS webhook, transactions list, subscription, **+ `GET /payment/courses`** (purchased courses). ❌ `GET /transactions/:id`, `POST /transactions/:id/cancel` not built. |
@@ -816,6 +816,8 @@ Token reset có TTL **15 phút**, lưu Redis `password_reset:<token> → userId`
 
 ### 6.1. `POST /api/v1/scan`
 
+> ⚠️ **v1 DIVERGENCE.** The shipped `POST /scan` differs substantially from this target spec. Actual v1 (see `docs/API_CURRENT.md` → Scan): JSON body `{ imageBase64, question? }` — **not** `multipart/form-data`; calls the **Gemini-based AI microservice** `/infer` — **not** OpenAI GPT-4o; persists the **image hash only** (no S3 upload, no `imageUrl`); returns the model's **free-text answer + matched dataset rows** — **not** structured S/M/L sizes, toppings, or per-macro numbers; and server-triggers the `AI_SCAN` quest (daily cap 3). The `/confirm`, `/history`, and `/:scanId` endpoints (§6.2–6.4) are **not built**.
+
 **Mô tả:** Upload ảnh món ăn, AI (OpenAI GPT-4o Vision) nhận diện món + ước lượng size (S/M/L) + topping thường gặp + macro/calo. **Background upload** ảnh lên S3 (không block response).
 
 - **Auth:** Bearer · **Authorization:** USER · **Rate limit:** 10 req/phút/user
@@ -1112,6 +1114,8 @@ Frontend chịu trách nhiệm hiển thị disclaimer khi gặp `PARTIAL` — b
 ## 8. Module: `nutrition`
 
 ### 8.1. `POST /api/v1/nutrition/meal-plans/generate`
+
+> ⚠️ **v1 DIVERGENCE.** The shipped endpoint is **synchronous** — it returns `200 OK` with the plan inline (no `202 Accepted`, no `jobId`, no polling/SSE). It takes **no request body** (the caller's `user_metrics` are loaded server-side and forwarded to the AI microservice `/plan`), is **not** tier-gated, and is **stateless** (nothing persisted — there is no `meal_plans` table). Errors: `404 USER_METRICS_NOT_FOUND` (onboarding incomplete), `503 AI_SERVICE_UNAVAILABLE`. `GET /meal-plans/active` (§8.2) is **not built**. See `docs/API_CURRENT.md` → Nutrition.
 
 **Mô tả:** AI sinh thực đơn 7 ngày dựa trên TDEE, mục tiêu, restrictions. Trả `202 Accepted` + jobId, client poll `/jobs/:id`. (Có thể stream qua SSE ở v1.1.)
 

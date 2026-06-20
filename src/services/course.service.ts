@@ -83,6 +83,7 @@ export interface CourseModuleView {
 export interface PtExcerpt {
   id: string;
   fullName: string;
+  avatarUrl: string | null;
   bioExcerpt: string;
   specialties: string[];
 }
@@ -841,12 +842,21 @@ export const restoreCourse = async (
 const buildPtExcerpt = (
   ptId: string,
   ptFullName: string,
+  ptAvatarUrl: string | null,
   ptBio: string | null,
   ptSpecialties: string[] | null,
+  // List views truncate the bio to a teaser; the course-detail view passes
+  // fullBio so the instructor's full bio is shown.
+  opts: { fullBio?: boolean } = {},
 ): PtExcerpt => ({
   id: ptId,
   fullName: ptFullName,
-  bioExcerpt: ptBio ? ptBio.slice(0, PT_BIO_EXCERPT_CHARS) : '',
+  avatarUrl: ptAvatarUrl,
+  bioExcerpt: ptBio
+    ? opts.fullBio
+      ? ptBio
+      : ptBio.slice(0, PT_BIO_EXCERPT_CHARS)
+    : '',
   specialties: ptSpecialties ?? [],
 });
 
@@ -884,6 +894,7 @@ export const discoverCourses = async (
       publishedAt: courses.publishedAt,
       ptId: courses.ptId,
       ptFullName: users.fullName,
+      ptAvatarUrl: users.avatarUrl,
       ptBio: ptProfiles.bio,
       ptSpecialties: ptProfiles.specialties,
     })
@@ -921,7 +932,7 @@ export const discoverCourses = async (
     tags: r.tags,
     totalLessons: r.totalLessons,
     publishedAt: r.publishedAt ? r.publishedAt.toISOString() : null,
-    pt: buildPtExcerpt(r.ptId, r.ptFullName, r.ptBio, r.ptSpecialties),
+    pt: buildPtExcerpt(r.ptId, r.ptFullName, r.ptAvatarUrl, r.ptBio, r.ptSpecialties),
   }));
 
   return { items, totalItems: countRows[0]?.n ?? 0 };
@@ -944,6 +955,7 @@ export const getPublicCourseDetail = async (
       publishedAt: courses.publishedAt,
       ptId: courses.ptId,
       ptFullName: users.fullName,
+      ptAvatarUrl: users.avatarUrl,
       ptBio: ptProfiles.bio,
       ptSpecialties: ptProfiles.specialties,
     })
@@ -970,7 +982,14 @@ export const getPublicCourseDetail = async (
     totalLessons: row.totalLessons,
     publishedAt: row.publishedAt ? row.publishedAt.toISOString() : null,
     modules,
-    pt: buildPtExcerpt(row.ptId, row.ptFullName, row.ptBio, row.ptSpecialties),
+    pt: buildPtExcerpt(
+      row.ptId,
+      row.ptFullName,
+      row.ptAvatarUrl,
+      row.ptBio,
+      row.ptSpecialties,
+      { fullBio: true },
+    ),
   };
 };
 

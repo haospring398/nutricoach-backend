@@ -1044,13 +1044,13 @@ Tất cả đều yêu cầu xác thực.
 
 **Query params tùy chọn:** `search`, `tag`, `ptId`, `maxPriceVnd`, `page`, `limit`
 
-Chỉ trả về khóa học `PUBLISHED`. Response bao gồm thông tin PT (`bioExcerpt` = 150 ký tự đầu của bio).
+Chỉ trả về khóa học `PUBLISHED`. Response bao gồm thông tin PT: `id`, `fullName`, `avatarUrl` (có thể `null`), `bioExcerpt` (= 150 ký tự đầu của bio ở màn danh sách), `specialties`.
 
 ---
 
 #### GET `/content/pt-courses/:id`
 
-Khóa học đầy đủ với các module + bài học. Trả về `404` cho khóa học chưa xuất bản.
+Khóa học đầy đủ với các module + bài học. Object `pt` cùng cấu trúc với màn danh sách (`id`, `fullName`, `avatarUrl`, `bioExcerpt`, `specialties`) nhưng `bioExcerpt` ở đây là **bio đầy đủ, không bị cắt 150 ký tự**. Trả về `404` cho khóa học chưa xuất bản.
 
 ---
 

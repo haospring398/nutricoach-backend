@@ -1933,10 +1933,10 @@ Public-ish (any authenticated user) discovery of published PT courses **and arti
     "id": "uuid", "title": "...", "thumbnailUrl": null,
     "priceVnd": 1490000, "durationDays": 30, "tags": ["WEIGHT_LOSS"],
     "totalLessons": 12, "publishedAt": "...",
-    "pt": { "id": "uuid", "fullName": "Trần Văn B", "bioExcerpt": "5 năm kinh nghiệm...", "specialties": ["WEIGHT_LOSS"] }
+    "pt": { "id": "uuid", "fullName": "Trần Văn B", "avatarUrl": null, "bioExcerpt": "5 năm kinh nghiệm...", "specialties": ["WEIGHT_LOSS"] }
   }
   ```
-  `bioExcerpt` is the first 150 chars of `pt_profiles.bio`.
+  In this **list** view `bioExcerpt` is the first 150 chars of `pt_profiles.bio`. The **detail** view (`GET /content/pt-courses/:id`) returns the same `pt` shape but with the **full** bio in `bioExcerpt`. `avatarUrl` comes from `users.avatar_url` (nullable).
 - Errors: `400 VALIDATION_ERROR`, `500 INTERNAL_ERROR`
 
 ---
@@ -1944,7 +1944,7 @@ Public-ish (any authenticated user) discovery of published PT courses **and arti
 ### GET /api/v1/content/pt-courses/:id
 
 - Auth: required
-- Response: `200 OK` — full course detail (modules + lessons) + PT excerpt. Returns `404 COURSE_NOT_FOUND` for unpublished courses (no draft/archived leakage).
+- Response: `200 OK` — full course detail (modules + lessons) + PT info. The `pt` object has the same shape as the list view (`id`, `fullName`, `avatarUrl`, `bioExcerpt`, `specialties`) but `bioExcerpt` here holds the **full, untruncated** bio. Returns `404 COURSE_NOT_FOUND` for unpublished courses (no draft/archived leakage).
 - Errors: `400 VALIDATION_ERROR`, `404 COURSE_NOT_FOUND`, `500 INTERNAL_ERROR`
 
 ---

@@ -83,7 +83,7 @@ router.get('/discover/pt-courses', discoverCoursesHandler);
  *   get:
  *     tags: [Content]
  *     summary: Get a published PT course detail
- *     description: Returns full curriculum + PT excerpt. 404 for non-published courses (no draft/archived leakage).
+ *     description: Returns full curriculum + PT info (id, fullName, avatarUrl, full bio in bioExcerpt, specialties). 404 for non-published courses (no draft/archived leakage).
  *     security:
  *       - BearerAuth: []
  *     parameters:

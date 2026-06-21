@@ -381,9 +381,13 @@ stored UPPERCASE, validated by Zod allow-lists.
 - **Idempotency** — `POST /payment/checkout` and `POST /pt/withdrawals` both take an
   `Idempotency-Key` header, cache the response in Redis (24h TTL), and have a DB unique
   constraint as the safety net if Redis misses. First call → 201, idempotent replay → 200.
-- **Migrations** — applied with `npm run db:migrate`. Never auto-run migrate; the human
-  applies it. Migrations `0010`–`0014` were **hand-written** (not drizzle-generated) and
-  required manual `meta/_journal.json` entries.
+- **Migrations** — applied with `npm run db:migrate`, now a two-pass runner: (1) drizzle's
+  migrator for journaled migrations (`meta/_journal.json`, through `0018`), then (2) a
+  **manual-SQL pass** that applies any `*.sql` file **not** in the journal (`0019`+) and not
+  yet recorded in the `_manual_migrations` table — one transaction per file, filename order.
+  Hand-written migrations no longer need `psql -f` or manual journal edits: just drop the
+  numbered `.sql` in `src/db/migrations/` (written idempotent, e.g. `ADD COLUMN IF NOT EXISTS`)
+  and run `db:migrate`. The runner is idempotent, so it's safe to wire into the deploy build.
 
 ### Middlewares (`src/middlewares/`)
 - **`authenticate`** (`auth.middleware.ts`) — JWT + user-row load + soft-delete check; sets `req.user`.

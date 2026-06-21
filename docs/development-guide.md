@@ -72,7 +72,7 @@ Swagger UI: `http://localhost:3000/api-docs` · raw spec: `/api-docs.json`.
 ## Quy trình thêm một feature/module
 
 1. **Model** `src/models/<domain>.model.ts` → re-export trong `models/index.ts`.
-2. **Migration** `npm run db:generate` (hoặc viết tay `.sql` + `psql -f` cho constraint phức tạp).
+2. **Migration** `npm run db:generate` (hoặc viết tay file `.sql` cho constraint phức tạp), rồi `npm run db:migrate` — runner áp cả migration journaled lẫn file viết tay ngoài journal (manual-SQL pass).
 3. **Validation** `src/validations/<module>.validation.ts` (Zod).
 4. **Service** `src/services/<module>.service.ts` (business logic, throw `ApiError` subclass).
 5. **Controller** `src/controllers/<module>.controller.ts` (parse → service → envelope; có `handleError` local).

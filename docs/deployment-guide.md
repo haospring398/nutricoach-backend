@@ -42,14 +42,12 @@ curl https://<host>/health  # { "status": "ok", ... }
 - 🟡 **Neon cold start:** suspend sau 5 phút → request đầu mất 5–10s (pool `connectionTimeoutMillis: 15s` xử lý).
 - 🟡 **`DB_SSL=true` bắt buộc với Neon** (set `false` chỉ khi local Postgres).
 
-## ⚠️ Quy tắc migration (xem [project-context.md](../_bmad-output/project-context.md))
+## ⚠️ Quy tắc migration (cập nhật 2026-06-21 — xem [project-context.md](../_bmad-output/project-context.md))
 
-- Migration thường: `npm run db:generate` → `npm run db:migrate`.
-- **Migration viết tay (0010+)**: áp bằng **`psql -f <file>.sql`** trực tiếp — KHÔNG `db:migrate` (drizzle journal hash corrupt với file viết tay). Verify sau bằng `\dt <table>`.
+- Migration thường (drizzle-kit sinh): `npm run db:generate` → `npm run db:migrate` (nằm trong `meta/_journal.json`).
+- **Migration viết tay (ngoài journal, 0019 trở đi)**: đặt file `.sql` vào `src/db/migrations/` rồi `npm run db:migrate` — **manual-SQL pass** của runner tự áp mọi file chưa chạy, theo dõi trong bảng `_manual_migrations` (mỗi file 1 transaction). **Không còn cần `psql -f`.** Viết SQL idempotent (`ADD COLUMN IF NOT EXISTS`).
 - **Không bao giờ `db:push` trên production** (bỏ qua partial unique index + CHECK constraints).
-- Con người chạy migrate thủ công — không auto-run.
-
-> ℹ️ Có điểm lệch nhỏ giữa DEPLOYMENT.md ("dùng `db:migrate`") và project-context.md ("migration viết tay dùng `psql -f`"). Với migration 0010+ ưu tiên `psql -f` theo project-context (mới hơn). Kiểm tra `meta/_journal.json` nếu nghi ngờ.
+- `db:migrate` an toàn khi chạy lại (idempotent) — khuyến nghị gắn vào Build Command của Render: `npm install && npm run build && npm run db:migrate`.
 
 ## CI/CD
 

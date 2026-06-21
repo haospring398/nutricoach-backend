@@ -110,7 +110,7 @@ npm run db:migrate
 Lệnh này tạo toàn bộ **27 tables** từ migrations `0000–0020`.  
 **Phải chạy trước `npm start`.**
 
-> ⚠️ Migration viết tay (`0010+`) nên áp bằng `psql -f <file>.sql` trực tiếp thay vì `db:migrate` (drizzle journal hash bị corrupt với file viết tay). Xem `_bmad-output/project-context.md`.
+> ℹ️ `db:migrate` giờ áp **cả** migration journaled (qua drizzle) **lẫn** migration viết tay ngoài journal (0019+, qua manual-SQL pass tracked trong `_manual_migrations`). Không còn cần `psql -f` cho file viết tay. Lệnh idempotent nên an toàn khi chạy lại / gắn vào deploy.
 
 ---
 
@@ -182,7 +182,7 @@ Pool đã config `max: 5` phù hợp. Không tăng lên — Neon free tier giớ
 Neon suspend sau 5 phút không có activity. Request đầu tiên sau khi suspend có thể mất 5–10 giây. Đây là behavior bình thường của Neon free tier — pool đã config `connectionTimeoutMillis: 15s` để handle.
 
 ### 🟡 Không dùng `drizzle-kit push`
-Một số migrations (`0010+`) được viết tay với journal entries riêng + partial unique indexes và CHECK constraints. `drizzle-kit push` sẽ bỏ qua chúng. **Không bao giờ `db:push` trên production.** Migration thường dùng `npm run db:migrate`; migration viết tay (`0010+`) áp bằng `psql -f <file>.sql` (xem mục 5).
+Một số migrations được viết tay với partial unique indexes và CHECK constraints mà DSL không biểu diễn được. `drizzle-kit push` sẽ bỏ qua chúng. **Không bao giờ `db:push` trên production.** Mọi migration (journaled lẫn viết tay) đều áp bằng `npm run db:migrate` (xem mục 5).
 
 ### 🟡 `DB_SSL=true` bắt buộc với Neon
 Nếu set `DB_SSL=false` hoặc bỏ trống → connection bị reject. Chỉ set `DB_SSL=false` khi test với local PostgreSQL.

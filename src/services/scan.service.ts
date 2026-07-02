@@ -4,8 +4,8 @@ import { db } from '../config/db';
 import { env } from '../config/env';
 import { ApiError } from '../lib/api-error';
 import { aiFoodScans } from '../models/ai-food-scan.model';
-import { users } from '../models/user.model';
 import { getVnDateString, triggerQuest } from './quest.service';
+import { isProActive } from './payment.service';
 
 export class ScanError extends ApiError {}
 
@@ -119,11 +119,10 @@ export async function scanFood(
   userId: string,
   input: ServiceScanInput,
 ): Promise<ScanResult> {
-  const [user] = await db
-    .select({ tier: users.tier })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
+  // Real-time check against subscriptions.expiresAt — users.tier is a
+  // denormalized flag that is never flipped back to FREE on natural expiry
+  // (no cron), so it can't be trusted for gating (see isProActive).
+  const isPro = await isProActive(userId);
 
   // Persist the hash only — never the raw base64 (privacy, Decision B).
   const imageHash = createHash('sha256')
@@ -132,9 +131,9 @@ export async function scanFood(
 
   // ── Enforce the FREE daily cap and reserve a pending row atomically so
   //    concurrent scans can't both slip past the limit (TOCTOU). Fail-closed:
-  //    a missing user or any non-PRO tier is treated as FREE.
+  //    anything short of an active, non-expired PRO subscription is FREE.
   let scanRecordId: string;
-  if (!user || user.tier !== 'PRO') {
+  if (!isPro) {
     // ai_food_scans.created_at is timestamptz, so a VN-midnight boundary is
     // correct here — never setHours() (server clock is UTC).
     const vnDate = getVnDateString();

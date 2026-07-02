@@ -53,7 +53,13 @@ const envSchema = z.object({
 
   // AI microservice (food scan + meal-plan generation) — boot-required so the
   // server fails fast if the integration is misconfigured (quirk #9).
-  AI_SERVICE_URL: z.string().url(),
+  // Strip a trailing slash: callers build paths as `${AI_SERVICE_URL}/plan`,
+  // and a slash-terminated URL (e.g. Render dashboard default) would double up
+  // to `//plan` and 404 against the AI service.
+  AI_SERVICE_URL: z
+    .string()
+    .url()
+    .transform((url) => url.replace(/\/+$/, '')),
   AI_SERVICE_SECRET: z.string().min(16),
 
   // Storage

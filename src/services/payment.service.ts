@@ -560,3 +560,21 @@ export const getSubscription = async (
     daysRemaining,
   };
 };
+
+// ── 6. isProActive — real-time PRO check ──────────────────────
+// users.tier is a denormalized flag set to 'PRO' by activateProSubscription
+// above but never flipped back to 'FREE' on natural expiry (there is no
+// cron/scheduler). Any call site that gates behavior on PRO status (scan
+// daily limit, AI meal-plan payload, etc.) must check the subscription's real
+// expiry here instead of trusting the stale users.tier column.
+export const isProActive = async (userId: string): Promise<boolean> => {
+  const [sub] = await db
+    .select({ expiresAt: subscriptions.expiresAt })
+    .from(subscriptions)
+    .where(
+      and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')),
+    )
+    .limit(1);
+
+  return !!sub && sub.expiresAt.getTime() > Date.now();
+};

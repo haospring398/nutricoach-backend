@@ -6,6 +6,7 @@ import { foodItems } from '../models/food-item.model';
 import { userMetrics } from '../models/user-metrics.model';
 import { users } from '../models/user.model';
 import { mealPlans } from '../models/meal-plan.model';
+import { isProActive } from './payment.service';
 import { ApiError } from '../lib/api-error';
 import type {
   CreateFoodLogInput,
@@ -518,10 +519,15 @@ export const generateMealPlan = async (userId: string): Promise<unknown> => {
   }
 
   const [u] = await db
-    .select({ fullName: users.fullName, tier: users.tier })
+    .select({ fullName: users.fullName })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
+
+  // Real-time check against subscriptions.expiresAt — users.tier is a
+  // denormalized flag that is never flipped back to FREE on natural expiry
+  // (no cron), so it can't be trusted for gating (see isProActive).
+  const isPro = await isProActive(userId);
 
   // numeric(5,2) columns come back as strings → coerce to numbers (quirk #19).
   const payload: GenerateMealPlanPayload = {
@@ -530,7 +536,7 @@ export const generateMealPlan = async (userId: string): Promise<unknown> => {
       id: userId,
       fullName: u?.fullName,
       subscription: {
-        plan: u?.tier === 'PRO' ? 'PRO' : 'FREE',
+        plan: isPro ? 'PRO' : 'FREE',
       },
       metrics: {
         gender: m.gender,

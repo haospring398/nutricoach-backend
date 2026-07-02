@@ -137,9 +137,18 @@ export async function scanFood(
   if (!user || user.tier !== 'PRO') {
     // ai_food_scans.created_at is timestamptz, so a VN-midnight boundary is
     // correct here — never setHours() (server clock is UTC).
-    const todayStart = new Date(`${getVnDateString()}T00:00:00+07:00`);
+    const vnDate = getVnDateString();
+    const todayStart = new Date(`${vnDate}T00:00:00+07:00`);
 
     scanRecordId = await db.transaction(async (tx) => {
+      // Serialize concurrent scans for the same user+day before count+insert.
+      // Under READ COMMITTED the count and insert are not atomic on their own,
+      // so two parallel requests could both pass the cap; this transaction-
+      // scoped advisory lock (auto-released on commit/rollback) closes the race.
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtext(${`scan:${userId}:${vnDate}`}))`,
+      );
+
       const [scanCount] = await tx
         .select({
           count: sql<number>`cast(count(${aiFoodScans.id}) as integer)`,
@@ -227,15 +236,32 @@ export async function scanFood(
     throw new ScanError(503, 'AI_SERVICE_UNAVAILABLE', 'AI service unreachable');
   }
 
-  // ── Fill in the reserved row with the real result.
-  await db
-    .update(aiFoodScans)
-    .set({
-      extraction: ai.extraction,
-      matchedRows: ai.retrievedRows,
-      finalAnswer: ai.finalAnswer,
-    })
-    .where(eq(aiFoodScans.id, scanRecordId));
+  // ── Fill in the reserved row with the real result. If this write fails the
+  //    AI work succeeded but we couldn't persist it — surface INTERNAL_ERROR
+  //    (not AI_SERVICE_UNAVAILABLE) and bail before the quest trigger so we
+  //    never award a scan we didn't record. The pending row is left as-is
+  //    (best-effort cleanup would also fail if the DB is down); log the id for
+  //    audit/reconciliation.
+  try {
+    await db
+      .update(aiFoodScans)
+      .set({
+        extraction: ai.extraction,
+        matchedRows: ai.retrievedRows,
+        finalAnswer: ai.finalAnswer,
+      })
+      .where(eq(aiFoodScans.id, scanRecordId));
+  } catch (dbErr) {
+    console.error(
+      `DB_ERROR saving scan result (scanId=${scanRecordId}):`,
+      dbErr,
+    );
+    throw new ScanError(
+      500,
+      'INTERNAL_ERROR',
+      'Failed to save scan result',
+    );
+  }
 
   // ── Server-side AI_SCAN quest trigger. A quest failure must never fail the
   //    scan; the daily quest cap is enforced inside triggerQuest.

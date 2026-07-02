@@ -5,6 +5,7 @@ import {
   dailySummary,
   deleteLog,
   generateMealPlan,
+  getMealPlan,
   listLogs,
   updateLog,
 } from '../controllers/nutrition.controller';
@@ -203,9 +204,12 @@ router.get('/summary/daily', dailySummary);
  *     summary: Generate an AI meal plan (synchronous)
  *     description: >
  *       Loads the caller's onboarding metrics and forwards them to the AI
- *       microservice's /plan endpoint, returning the generated multi-day meal +
- *       exercise plan. Stateless in v1 (nothing persisted — there is no
- *       meal_plans table). Requires completed onboarding.
+ *       microservice's /plan endpoint ({ question, userInfo } contract),
+ *       returning the generated multi-day meal + exercise plan. Retries transient
+ *       AI failures (429/502/503/504) up to 3x, injects a default exercise plan
+ *       when the AI omits one, and upserts the result into meal_plans (one row
+ *       per user) so it can be re-read via GET /nutrition/meal-plans. Requires
+ *       completed onboarding.
  *     security:
  *       - BearerAuth: []
  *     responses:
@@ -227,6 +231,12 @@ router.get('/summary/daily', dailySummary);
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: INTERNAL_ERROR (failed to persist the generated plan)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
  *       503:
  *         description: AI_SERVICE_UNAVAILABLE (AI microservice down or errored)
  *         content:
@@ -235,5 +245,39 @@ router.get('/summary/daily', dailySummary);
  *               $ref: '#/components/schemas/ErrorResponse'
  */
 router.post('/meal-plans/generate', generateMealPlan);
+
+/**
+ * @openapi
+ * /nutrition/meal-plans:
+ *   get:
+ *     tags: [Nutrition]
+ *     summary: Get the latest saved meal plan
+ *     description: >
+ *       Returns the caller's most recently generated meal + exercise plan
+ *       (persisted by POST /nutrition/meal-plans/generate). Returns 404 when the
+ *       user has never generated a plan.
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: The saved meal plan (summary, calories_target, daily_meals, exercise_plan)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/SuccessResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       404:
+ *         description: MEAL_PLAN_NOT_FOUND (user has not generated a plan yet)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+router.get('/meal-plans', getMealPlan);
 
 export default router;

@@ -31,7 +31,7 @@ Snapshot of endpoints that actually exist in the route files. Anything not liste
 
 ## Implementation status
 
-- Implemented (by logical module): **Auth (10), Users (9), Nutrition (6), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (22), Admin/PT-review (7), Admin user-mgmt (6), Content (14 — 2 PT-course + 12 articles), Quests (18 — 7 user + 11 admin), Scan (1)** — **109 endpoints total** (+ `GET /health`)
+- Implemented (by logical module): **Auth (10), Users (9), Nutrition (7), Foods (3), Dashboard (1), Payment (5), Workout (7), PT (22), Admin/PT-review (7), Admin user-mgmt (6), Content (14 — 2 PT-course + 12 articles), Quests (18 — 7 user + 11 admin), Scan (1)** — **110 endpoints total** (+ `GET /health`)
 
 > **Count note:** exact `router.METHOD(...)` counts, verified against `docs/CODEBASE_CONTEXT.md §3`. The `/admin` mount physically carries 33 handlers spanning four logical modules (PT review 7 + article read/write 9 incl. `upload-image` + `:id/restore` + quest admin 11 incl. 3 redemption + 4 rewards CRUD + user management 6 incl. analytics); the table above groups by logical module. PT is **22** (P1 4, P2 courses 11 incl. thumbnail + lesson video upload + archived→draft restore, P3 students 4, P4 earnings/withdrawals 3); Auth is **10** incl. `GET /auth/me`.
 
@@ -722,11 +722,16 @@ Caller supplies all macros and a multiplier; server stores values as-is.
 
 ### POST /api/v1/nutrition/meal-plans/generate
 
-Generates an AI meal + exercise plan from the caller's stored metrics. **Synchronous** — the request blocks on the AI microservice and returns the plan inline. **Stateless**: nothing is persisted (there is no `meal_plans` table in v1).
+Generates an AI meal + exercise plan from the caller's stored metrics. **Synchronous** — the request blocks on the AI microservice and returns the plan inline. **Persisted**: the result is upserted into `meal_plans` (one row per user) so it can be re-read via `GET /nutrition/meal-plans`.
 
 - Auth: required
-- Request: no body required — the caller's `user_metrics` row (gender, DOB, height, weight, activity level, goal, target weight, daily calorie target) is loaded server-side and forwarded to the AI service. `numeric` weights are coerced to numbers first.
-- Behavior: maps the metrics to the AI service's `/plan` contract (`{ fullName, userMetrics }`), calls it with the `X-AI-Secret` header, and returns the generated plan as-is.
+- Request: no body required — the caller's `user_metrics` row (gender, DOB, height, weight, activity level, goal, target weight, daily calorie target, dietary restrictions, allergies, macro targets) plus `users.tier` are loaded server-side and forwarded to the AI service. `numeric` weights are coerced to numbers first.
+- Behavior:
+  - Maps the metrics to the AI service's `/plan` contract (`{ question, userInfo: { id, fullName, subscription: { plan }, metrics } }` — `subscription.plan` is derived from `users.tier`), calls it with the `X-AI-Secret` header.
+  - Retries transient AI failures (HTTP 429/502/503/504 or network/parse errors) up to 3 attempts with a `2s, 4s` backoff.
+  - Accepts either `{ plan: ... }` or a bare plan object (`plan ?? body`).
+  - Injects a default whole-body `exercise_plan` (Squat 3×10–12, Push Up 3×8–10) when the AI omits one, so the mobile app always has a workout to render.
+  - Upserts the plan into `meal_plans` (`ON CONFLICT (user_id) DO UPDATE`). A DB-write failure is reported as `500 INTERNAL_ERROR` — it is **never** collapsed into `AI_SERVICE_UNAVAILABLE`.
 - Response: `200 OK`
   ```json
   {
@@ -737,7 +742,7 @@ Generates an AI meal + exercise plan from the caller's stored metrics. **Synchro
       "daily_meals": [
         { "day": 1, "meals": [ { "name": "Bữa sáng", "items": ["..."], "calories": 530 } ], "calories_estimate": 1800 }
       ],
-      "exercise_plan": [ { "day": 1, "session": "Cardio 30 phút", "notes": "..." } ]
+      "exercise_plan": [ { "day": 1, "session_name": "Toàn thân cơ bản", "exercises": ["..."] } ]
     }
   }
   ```
@@ -745,7 +750,21 @@ Generates an AI meal + exercise plan from the caller's stored metrics. **Synchro
 - Errors:
   - `401 UNAUTHORIZED`
   - `404 USER_METRICS_NOT_FOUND` — onboarding not completed
-  - `503 AI_SERVICE_UNAVAILABLE` — AI microservice unreachable or returned a non-2xx
+  - `503 AI_SERVICE_UNAVAILABLE` — AI microservice unreachable or returned a non-2xx after retries
+  - `500 INTERNAL_ERROR` — plan generated but failed to persist
+
+---
+
+### GET /api/v1/nutrition/meal-plans
+
+Returns the caller's most recently generated meal + exercise plan (the row persisted by `POST /nutrition/meal-plans/generate`).
+
+- Auth: required
+- Request: none
+- Response: `200 OK` — `{ "success": true, "data": <the saved plan> }`. `data` is the exact plan object returned by `generate`.
+- Errors:
+  - `401 UNAUTHORIZED`
+  - `404 MEAL_PLAN_NOT_FOUND` — the user has not generated a plan yet
   - `500 INTERNAL_ERROR`
 
 ---
@@ -2157,30 +2176,35 @@ AI food scanning via an external Gemini-based microservice. Requires auth.
 
 ### POST /api/v1/scan
 
-Sends a base64 food image to the AI microservice (vision → dataset retrieval → Vietnamese answer), persists the image **hash only** (never the base64) in `ai_food_scans`, and triggers the `AI_SCAN` quest server-side (daily cap 3; the new scan id is the verified `referenceId`). The result is the model's extraction, matched dataset rows, and a free-text answer — **not** structured S/M/L sizes or per-macro numbers.
+Uploads a food image (**`multipart/form-data`**, field `image`); the backend converts it to base64 and proxies it to the AI microservice's `/scan` endpoint (vision → dataset retrieval → Vietnamese answer). Persists the image **hash only** (never the base64) in `ai_food_scans` and triggers the `AI_SCAN` quest server-side (quest daily cap 3; the new scan id is the verified `referenceId`). The response is a **structured** food result mapped from the AI extraction (with a regex fallback over the free-text answer).
 
 - Auth: required
-- Request: body (unknown keys rejected by `.strict()`)
-  - `imageBase64`: string, min 100 chars — raw base64 (no `data:` prefix; the AI service adds the wrapper)
-  - `question` (optional): string, trim, 1–300 chars
+- Rate limit: **FREE users are capped at 3 scans per VN calendar day** (`403 SCAN_LIMIT_REACHED`); **PRO users are unlimited**. Enforced inside a transaction with a reserved pending row to prevent TOCTOU races.
+- Request: `multipart/form-data`
+  - `image`: file (JPG/PNG), required
+  - `question` (optional): string, trim, 1–300 chars (body field; unknown keys rejected by `.strict()`)
 - Response: `200 OK`
   ```json
   {
     "success": true,
     "data": {
       "scanId": "uuid",
-      "extraction": { "foods": [ { "english_name": "...", "vietnamese_name": "...", "confidence": 0.9 } ], "image_summary": "...", "likely_dataset": "dish" },
-      "retrievedRows": [ { "source_file": "vn_dishes.csv", "score": 92, "match_reason": "substring match", "row": { "Description_VN": "Phở bò", "Calories": "...", "Protein": "..." } } ],
-      "finalAnswer": "Món ăn là Phở bò ...",
+      "foodName": "Phở bò",
+      "calories": 350,
+      "macros": { "proteinG": 25, "carbsG": 40, "fatG": 8 },
+      "confidence": 90,
+      "ingredients": ["bánh phở", "thịt bò", "hành"],
+      "portion": "1 tô",
       "quest": { "triggered": true, "pointsAwarded": 20, "totalPoints": 80 }
     }
   }
   ```
-  `extraction` and `retrievedRows` are passed through from the AI service. `quest` is `null` if the AI_SCAN quest could not be awarded (e.g. daily cap reached) — the scan still succeeds.
+  Fields are mapped from the AI `extraction` (supporting both a direct object and a `foods[0]` array); missing numbers fall back to regex-parsing `finalAnswer`. `foodName` defaults to `"Unknown Food"`, `portion` to `"1 phần"`. `quest` is `null` if the AI_SCAN quest could not be awarded (e.g. quest daily cap reached) — the scan still succeeds.
 - Errors:
-  - `400 VALIDATION_ERROR` — missing/short `imageBase64`, or unknown keys
+  - `400 VALIDATION_ERROR` — missing image file, bad file type/size, or unknown body keys
   - `401 UNAUTHORIZED`
-  - `503 AI_SERVICE_UNAVAILABLE` — AI microservice unreachable or returned a non-2xx
+  - `403 SCAN_LIMIT_REACHED` — FREE daily scan cap of 3 reached
+  - `503 AI_SERVICE_UNAVAILABLE` — AI microservice unreachable or returned a non-2xx (the reserved pending row is rolled back)
   - `500 INTERNAL_ERROR`
 
 ---

@@ -6,6 +6,7 @@ import {
   deleteFoodLog,
   generateMealPlan as generateMealPlanService,
   getDailySummary,
+  getLatestMealPlan,
   listFoodLogsByDate,
   updateFoodLog,
 } from '../services/nutrition.service';
@@ -140,6 +141,20 @@ export const generateMealPlan = async (
     const userId = requireUser(req, res);
     if (!userId) return;
     const data = await generateMealPlanService(userId);
+    sendSuccess(res, 200, data);
+  } catch (err) {
+    handleError(res, err);
+  }
+};
+
+export const getMealPlan = async (
+  req: Request,
+  res: Response,
+): Promise<void> => {
+  try {
+    const userId = requireUser(req, res);
+    if (!userId) return;
+    const data = await getLatestMealPlan(userId);
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

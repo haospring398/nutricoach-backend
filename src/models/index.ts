@@ -11,4 +11,5 @@ export * from './pt-earnings.model';
 export * from './content.model';
 export * from './quest.model';
 export * from './ai-food-scan.model';
+export * from './meal-plan.model';
 // export * from './nutrition.model';

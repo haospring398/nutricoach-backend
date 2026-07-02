@@ -26,6 +26,14 @@ async function start() {
 ──────────────────────────────────────`);
   });
 
+  // AI meal-plan generation can run for tens of seconds; raise the socket
+  // timeouts so long-but-legitimate requests aren't cut off. headersTimeout
+  // must stay above keepAliveTimeout to avoid premature 5xx on kept-alive
+  // connections.
+  server.timeout = 100_000;
+  server.keepAliveTimeout = 100_000;
+  server.headersTimeout = 101_000;
+
   server.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
       console.error(`\n❌ Port ${env.PORT} is already in use.`);

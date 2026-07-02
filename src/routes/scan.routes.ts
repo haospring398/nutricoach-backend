@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middlewares/auth.middleware';
+import { uploadSingle } from '../middlewares/upload.middleware';
 import { scan } from '../controllers/scan.controller';
 
 const router: Router = Router();
@@ -13,43 +14,52 @@ router.use(authenticate);
  *     tags: [Scan]
  *     summary: AI food scan
  *     description: >
- *       Sends a base64 food image to the AI microservice (Gemini vision →
+ *       Uploads a food image (multipart/form-data, field `image`); the backend
+ *       converts it to base64 and proxies to the AI microservice (Gemini vision →
  *       dataset retrieval → Vietnamese answer), persists the image hash + result,
- *       and triggers the AI_SCAN quest server-side (daily cap 3). Returns the
- *       extraction, matched dataset rows and the free-text answer — not
- *       structured S/M/L sizes or per-macro numbers.
+ *       and triggers the AI_SCAN quest server-side (daily cap 3). FREE users are
+ *       limited to 3 scans per calendar day (VN timezone); PRO users are
+ *       unlimited. Returns a structured food result (name, calories, macros,
+ *       confidence, ingredients, portion) mapped from the AI extraction.
  *     security:
  *       - BearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [imageBase64]
+ *             required: [image]
  *             properties:
- *               imageBase64:
+ *               image:
  *                 type: string
- *                 description: Raw base64 image (no `data:` prefix)
+ *                 format: binary
+ *                 description: JPG/PNG image file
  *               question:
  *                 type: string
  *                 maxLength: 300
  *                 description: Optional question for the model (Vietnamese)
  *     responses:
  *       200:
- *         description: Scan result (extraction, matched rows, answer, quest)
+ *         description: Structured food result (scanId, foodName, calories, macros, confidence, ingredients, portion, quest)
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/SuccessResponse'
  *       400:
- *         description: Validation error
+ *         description: Validation error (missing/invalid image file)
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  *       401:
  *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       403:
+ *         description: SCAN_LIMIT_REACHED (FREE daily scan cap of 3 reached)
  *         content:
  *           application/json:
  *             schema:
@@ -61,6 +71,6 @@ router.use(authenticate);
  *             schema:
  *               $ref: '#/components/schemas/ErrorResponse'
  */
-router.post('/', scan);
+router.post('/', uploadSingle('image'), scan);
 
 export default router;

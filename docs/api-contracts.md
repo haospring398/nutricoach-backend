@@ -16,7 +16,7 @@
 - **Enum:** API luôn trả **UPPERCASE** (xem [data-models.md](./data-models.md)).
 - **Idempotency:** `POST /payment/checkout` và `POST /pt/withdrawals` nhận header `Idempotency-Key` (Redis 24h TTL + DB unique làm safety net). First call → 201, replay → 200.
 
-**Tổng: 109 route handlers** (`router.METHOD(...)` đếm trực tiếp từ `src/routes/*`, chưa kể `GET /health`). `/admin` mang 33 handler thuộc nhiều module con. Phân theo mount:
+**Tổng: 110 route handlers** (`router.METHOD(...)` đếm trực tiếp từ `src/routes/*`, chưa kể `GET /health`). `/admin` mang 33 handler thuộc nhiều module con. Phân theo mount:
 
 ---
 
@@ -49,7 +49,7 @@
 | GET | `/users/me/pt-assignments` | auth | Bài tập/meal-plan PT giao |
 | POST | `/users/me/avatar` | auth | Upload avatar (Cloudinary, multer 5MB) |
 
-## `/nutrition` — [nutrition.routes.ts](../src/routes/nutrition.routes.ts) (6)
+## `/nutrition` — [nutrition.routes.ts](../src/routes/nutrition.routes.ts) (7)
 
 | Method | Path | Auth | Mô tả |
 |---|---|---|---|
@@ -58,7 +58,8 @@
 | PATCH | `/nutrition/food-logs/:id` | auth | Sửa food log |
 | DELETE | `/nutrition/food-logs/:id` | auth | Xóa food log |
 | GET | `/nutrition/summary/daily` | auth | Tổng kết dinh dưỡng theo ngày |
-| POST | `/nutrition/meal-plans/generate` | auth | Sinh meal plan (gọi AI microservice) |
+| POST | `/nutrition/meal-plans/generate` | auth | Sinh meal plan (gọi AI `/plan`, retry, lưu `meal_plans` — upsert) |
+| GET | `/nutrition/meal-plans` | auth | Lấy meal plan đã lưu gần nhất (404 nếu chưa có) |
 
 ## `/foods` — [foods.routes.ts](../src/routes/foods.routes.ts) (3)
 
@@ -151,7 +152,7 @@
 
 | Method | Path | Auth | Mô tả |
 |---|---|---|---|
-| POST | `/scan` | auth | AI food scan (ảnh → Gemini → match catalog) |
+| POST | `/scan` | auth | AI food scan — upload ảnh `multipart/form-data` (field `image`) → AI `/scan`; trả kết quả có cấu trúc; FREE giới hạn 3 lần/ngày |
 
 ## `/admin` — [admin.routes.ts](../src/routes/admin.routes.ts) (33 — role:admin router-wide)
 

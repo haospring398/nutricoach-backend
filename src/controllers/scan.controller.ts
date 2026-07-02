@@ -51,8 +51,24 @@ export const scan = async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = requireUser(req, res);
     if (!userId) return;
+
+    // Surface any error stashed by uploadSingle (size limit, bad type) — same
+    // contract the other upload controllers use (no global error middleware).
+    const r = req as Request & { uploadError?: unknown };
+    if (r.uploadError) {
+      throw r.uploadError;
+    }
+
+    if (!req.file?.buffer) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Image file is required');
+    }
+
     const input = scanSchema.parse(req.body);
-    const data = await scanFood(userId, input);
+    const data = await scanFood(userId, {
+      imageBase64: req.file.buffer.toString('base64'),
+      mimeType: req.file.mimetype,
+      question: input.question,
+    });
     sendSuccess(res, 200, data);
   } catch (err) {
     handleError(res, err);

@@ -5,6 +5,7 @@ import { foodLogs, type FoodLog } from '../models/food-log.model';
 import { foodItems } from '../models/food-item.model';
 import { userMetrics } from '../models/user-metrics.model';
 import { users } from '../models/user.model';
+import { mealPlans } from '../models/meal-plan.model';
 import { ApiError } from '../lib/api-error';
 import type {
   CreateFoodLogInput,
@@ -424,10 +425,84 @@ export const getDailySummary = async (
   };
 };
 
-// ── AI meal-plan generation (synchronous; stateless — Decision A1) ─────
+// ── AI meal-plan generation (synchronous; persisted) ──────────
 // Loads the caller's metrics, maps them to the AI service's /plan contract
-// ({ fullName, userMetrics }), and returns the generated plan as-is. Nothing is
-// persisted — there is no meal_plans table in v1 (see CODEBASE_CONTEXT §6).
+// ({ question, userInfo }), retries transient failures, injects a default
+// exercise plan when the AI omits one, then upserts the result into meal_plans
+// (one row per user). The generated plan is returned as-is to the client.
+
+// The exact contract the deployed AI /plan endpoint expects. Kept fully typed
+// (no `any`) so a contract drift surfaces at compile time.
+interface GenerateMealPlanPayload {
+  question: string;
+  userInfo: {
+    id: string;
+    fullName?: string | null;
+    subscription: {
+      plan: 'FREE' | 'PRO';
+    };
+    metrics: {
+      gender: string;
+      dateOfBirth: string | null;
+      heightCm: number;
+      weightKg: number;
+      activityLevel: string;
+      goal: string;
+      targetWeightKg?: number;
+      dailyCalorieTarget: number;
+      dietaryRestrictions: string[] | null;
+      allergies: string[] | null;
+      macros: {
+        proteinG: number;
+        carbsG: number;
+        fatG: number;
+      };
+    };
+  };
+}
+
+// Injected when the AI plan omits an exercise_plan (or returns an empty one) so
+// the mobile app always has a workout to render. Extracted to a constant (not
+// inlined) to keep generateMealPlan readable.
+const DEFAULT_EXERCISE_PLAN = [
+  {
+    day: 1,
+    session_name: 'Toàn thân cơ bản',
+    focus: 'Sức khỏe chung',
+    duration_minutes: 30,
+    notes: 'Dành cho người mới bắt đầu',
+    exercises: [
+      {
+        exercise_name: 'Squat',
+        display_name: 'Squat cơ bản',
+        sets: 3,
+        reps: '10-12',
+        rest_seconds: 60,
+      },
+      {
+        exercise_name: 'Push Up',
+        display_name: 'Hít đất',
+        sets: 3,
+        reps: '8-10',
+        rest_seconds: 60,
+      },
+    ],
+  },
+];
+
+const AI_PLAN_MAX_RETRIES = 3;
+// Status codes worth retrying — rate limit + transient upstream/gateway errors.
+const AI_RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+
+// The AI service may wrap the plan as `{ plan: ... }` or return it directly.
+const unwrapPlan = (resp: unknown): unknown => {
+  if (resp && typeof resp === 'object' && 'plan' in resp) {
+    const inner = (resp as { plan?: unknown }).plan;
+    return inner ?? resp;
+  }
+  return resp;
+};
+
 export const generateMealPlan = async (userId: string): Promise<unknown> => {
   const [m] = await db
     .select()
@@ -443,52 +518,154 @@ export const generateMealPlan = async (userId: string): Promise<unknown> => {
   }
 
   const [u] = await db
-    .select({ fullName: users.fullName })
+    .select({ fullName: users.fullName, tier: users.tier })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
 
   // numeric(5,2) columns come back as strings → coerce to numbers (quirk #19).
-  const payload = {
-    userId,
-    fullName: u?.fullName,
-    userMetrics: {
-      gender: m.gender,
-      dateOfBirth: m.dateOfBirth,
-      heightCm: m.heightCm,
-      weightKg: Number(m.weightKg),
-      activityLevel: m.activityLevel,
-      goal: m.goal,
-      targetWeightKg:
-        m.targetWeightKg === null ? undefined : Number(m.targetWeightKg),
-      dailyCalorieTarget: m.dailyCalorieTarget,
+  const payload: GenerateMealPlanPayload = {
+    question: 'Tạo kế hoạch dinh dưỡng',
+    userInfo: {
+      id: userId,
+      fullName: u?.fullName,
+      subscription: {
+        plan: u?.tier === 'PRO' ? 'PRO' : 'FREE',
+      },
+      metrics: {
+        gender: m.gender,
+        dateOfBirth: m.dateOfBirth,
+        heightCm: m.heightCm,
+        weightKg: Number(m.weightKg),
+        activityLevel: m.activityLevel,
+        goal: m.goal,
+        targetWeightKg:
+          m.targetWeightKg === null ? undefined : Number(m.targetWeightKg),
+        dailyCalorieTarget: m.dailyCalorieTarget,
+        dietaryRestrictions: m.dietaryRestrictions,
+        allergies: m.allergies,
+        macros: {
+          proteinG: m.proteinG,
+          carbsG: m.carbsG,
+          fatG: m.fatG,
+        },
+      },
     },
   };
 
-  try {
-    const resp = await fetch(`${env.AI_SERVICE_URL}/plan`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-AI-Secret': env.AI_SERVICE_SECRET,
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!resp.ok) {
-      const body = await resp.text();
+  // ── Call the AI service with bounded retries (kept separate from the DB
+  //    write below so a persistence failure never masquerades as an AI error).
+  let aiData: unknown = null;
+
+  for (let attempt = 1; attempt <= AI_PLAN_MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(`${env.AI_SERVICE_URL}/plan`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-AI-Secret': env.AI_SERVICE_SECRET,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        console.error(
+          `AI_SERVICE_ERROR (/plan attempt ${attempt}):`,
+          resp.status,
+          body.slice(0, 500),
+        );
+        if (AI_RETRYABLE_STATUS.has(resp.status) && attempt < AI_PLAN_MAX_RETRIES) {
+          const delayMs = attempt * 2000; // 2s, 4s
+          console.warn(`[AI /plan] Retrying in ${delayMs}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
+        }
+        throw new NutritionError(
+          503,
+          'AI_SERVICE_UNAVAILABLE',
+          `AI service responded ${resp.status}: ${body.slice(0, 500)}`,
+        );
+      }
+
+      const plan = unwrapPlan((await resp.json()) as unknown);
+      if (!plan) {
+        throw new Error('AI response is missing plan data');
+      }
+
+      // Guarantee an exercise_plan for the mobile app.
+      if (plan && typeof plan === 'object' && !Array.isArray(plan)) {
+        const planObj = plan as Record<string, unknown>;
+        const ex = planObj.exercise_plan;
+        if (!ex || (Array.isArray(ex) && ex.length === 0)) {
+          planObj.exercise_plan = DEFAULT_EXERCISE_PLAN;
+        }
+      }
+
+      aiData = plan;
+      break; // success
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      if (attempt < AI_PLAN_MAX_RETRIES) {
+        const delayMs = attempt * 2000;
+        console.warn(
+          `[AI /plan] Network/parse error on attempt ${attempt}. Retrying in ${delayMs}ms...`,
+          (err as Error).message,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
       throw new NutritionError(
         503,
         'AI_SERVICE_UNAVAILABLE',
-        `AI service responded ${resp.status}: ${body.slice(0, 200)}`,
+        'AI service unreachable or returned invalid format',
       );
     }
-    return await resp.json();
-  } catch (err) {
-    if (err instanceof ApiError) throw err;
+  }
+
+  if (aiData === null) {
+    // Unreachable in practice (the loop breaks with data or throws), but keeps
+    // the type narrowed and guards against a silent empty upsert.
     throw new NutritionError(
       503,
       'AI_SERVICE_UNAVAILABLE',
-      'AI service unreachable',
+      'AI service unreachable or returned invalid format',
     );
   }
+
+  // ── Persist (upsert one row per user). A DB failure here is our fault, not
+  //    the AI's → INTERNAL_ERROR, never AI_SERVICE_UNAVAILABLE.
+  try {
+    await db
+      .insert(mealPlans)
+      .values({ userId, data: aiData })
+      .onConflictDoUpdate({
+        target: mealPlans.userId,
+        set: { data: aiData, updatedAt: new Date() },
+      });
+  } catch (dbErr) {
+    console.error('DB_ERROR saving meal plan:', dbErr);
+    throw new NutritionError(
+      500,
+      'INTERNAL_ERROR',
+      'Failed to save meal plan to database',
+    );
+  }
+
+  return aiData;
+};
+
+// Returns the caller's latest persisted meal plan (the raw AI plan `data`).
+export const getLatestMealPlan = async (userId: string): Promise<unknown> => {
+  const [plan] = await db
+    .select({ data: mealPlans.data })
+    .from(mealPlans)
+    .where(eq(mealPlans.userId, userId))
+    .limit(1);
+
+  if (!plan) {
+    throw new NutritionError(404, 'MEAL_PLAN_NOT_FOUND', 'No meal plan found');
+  }
+
+  return plan.data;
 };

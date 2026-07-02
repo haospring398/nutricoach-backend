@@ -518,16 +518,17 @@ export const generateMealPlan = async (userId: string): Promise<unknown> => {
     );
   }
 
-  const [u] = await db
-    .select({ fullName: users.fullName })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  // Real-time check against subscriptions.expiresAt — users.tier is a
-  // denormalized flag that is never flipped back to FREE on natural expiry
-  // (no cron), so it can't be trusted for gating (see isProActive).
-  const isPro = await isProActive(userId);
+  // Independent lookups — run in parallel. isProActive checks the
+  // subscription's real expiry because users.tier is a denormalized flag that
+  // is never flipped back to FREE on natural expiry (no cron).
+  const [[u], isPro] = await Promise.all([
+    db
+      .select({ fullName: users.fullName })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1),
+    isProActive(userId),
+  ]);
 
   // numeric(5,2) columns come back as strings → coerce to numbers (quirk #19).
   const payload: GenerateMealPlanPayload = {

@@ -43,6 +43,10 @@ const envSchema = z.object({
   PAYOS_CLIENT_ID: z.string().optional(),
   PAYOS_API_KEY: z.string().optional(),
   PAYOS_CHECKSUM_KEY: z.string().optional(),
+  // Public URL PayOS should POST payment webhooks to (e.g. a deployed domain
+  // or an ngrok tunnel in local dev). Optional: unset means "don't attempt
+  // registration" (e.g. no public URL available yet) — see server.ts boot.
+  PAYOS_WEBHOOK_URL: z.string().url().optional(),
 
   // Cloudinary (avatar uploads) — boot-required (per avatar-upload-spec §4.2).
   // Non-optional .min(1) is the credential guard: env.ts exits at boot if any

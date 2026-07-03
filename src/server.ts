@@ -2,6 +2,7 @@ import app from './app';
 import { env } from './config/env';
 import { testDbConnection, closeDbConnection } from './config/db';
 import { testRedisConnection, closeRedisConnection } from './config/redis';
+import { registerWebhook } from './services/payment/payos.client';
 
 async function start() {
   console.log('\n🔍 Checking service connections...\n');
@@ -15,6 +16,9 @@ async function start() {
     console.error('\n❌ One or more services failed to connect. Aborting.\n');
     process.exit(1);
   }
+
+  // Best-effort — logs and continues on failure, never blocks boot.
+  await registerWebhook();
 
   const server = app.listen(env.PORT, () => {
     console.log(`
